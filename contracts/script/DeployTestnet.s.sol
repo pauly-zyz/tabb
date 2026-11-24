@@ -8,6 +8,8 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {PayeeRegistry} from "../src/agent/PayeeRegistry.sol";
 import {MockUSDG} from "../test/mocks/MockUSDG.sol";
 import {MockERC8004IdentityRegistry} from "../test/mocks/MockERC8004IdentityRegistry.sol";
+import {MockYieldToken} from "../test/mocks/MockYieldToken.sol";
+import {TabbPool} from "../src/pool/TabbPool.sol";
 
 /// @notice Testnet deployment. Refuses Robinhood Chain mainnet (4663) and anvil.
 ///   source .env
@@ -55,6 +57,18 @@ contract DeployTestnet is TabbDeployer {
         if (yieldOn) {
             y = _deployYieldCore(usdg, c.irm, deployer, guardian, treasury);
             if (mocks) y = _deployYieldMocks(y, usdg);
+        }
+
+        // Demo seeding (mock USDG only): pool liquidity, one curated demo payee, YT for the deployer.
+        if (mocks && usdg != e.usdg) {
+            IERC20(usdg).approve(c.pool, 20_000e6);
+            TabbPool(c.pool).deposit(20_000e6, deployer);
+            PayeeRegistry(c.payeeRegistry).setPayee(deployer, true, "Demo compute provider (testnet)");
+            if (yieldOn) {
+                IERC20(usdg).approve(y.pool, 20_000e6);
+                TabbPool(y.pool).deposit(20_000e6, deployer);
+                if (y.yieldToken != address(0)) MockYieldToken(y.yieldToken).mint(deployer, 10_000e18);
+            }
         }
         vm.stopBroadcast();
 
