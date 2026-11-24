@@ -2,7 +2,7 @@
 
 > **Put it on the tab. Your yield pays it back.**
 >
-> Status: **v0.3 — disetujui; Fase 1 diimplementasikan** (lihat §18 untuk catatan implementasi)
+> Status: **v0.4 — disetujui; Fase 1 dan Fase 2 diimplementasikan (pra-audit)** (lihat §18 untuk catatan implementasi)
 > Chain target: Robinhood Chain (Arbitrum Orbit L2, chain ID `4663`)
 
 ### Changelog
@@ -10,6 +10,7 @@
 | Versi | Perubahan |
 |---|---|
 | v0.1 | Draft awal: Fase 1 = kredit berbasis yield, Fase 2 = kredit AI agent (stub). |
+| v0.4 | Fase 2 (kredit berbasis yield) diimplementasikan penuh: TabManager, YieldRiskConfig, OracleRouter, dua adapter, YieldHarvester, Liquidator, pool terpisah (Q-U1). |
 | v0.3 | Disetujui pemilik proyek (semua usulan default di §17 diterima). Catatan implementasi & penyimpangan kecil di §18. |
 | v0.2 | **Urutan fase dibalik atas permintaan pemilik proyek.** Fase 1 = **kredit AI agent** (dirancang penuh). Fase 2 = **kredit berbasis yield** (desain v0.1 dipertahankan di §9, dibangun setelah Fase 1). `TabbPool` mendukung *spread* bunga per credit line. Milestone dan pertanyaan terbuka diperbarui. |
 
@@ -715,6 +716,10 @@ Penyimpangan dari desain v0.2 yang ditemukan saat implementasi. Semua didokument
 | I3 | `assumeTab` untuk pemilik NFT baru saat utang > 0 | Tidak didukung. Pemilik baru hanya bisa membuka tab setelah tab lama lunas dan ditutup. Stake dicatat per `(agentId, staker)`, jadi stake pemilik lama tidak tercampur. | Mengalihkan utang + stake antar pemilik menambah kompleksitas dan permukaan serangan. Dengan utang, pemilik lama tetap liable (draw & spending beku). |
 | I4 | — | `availableCredit()` memperhitungkan pembulatan scaled debt, dan `draw` mengecek utang **persis** setelah draw (bukan `debt + amount`). | Ditemukan oleh invariant test (selisih 1 wei). |
 | I5 | Fee distribute (Q-A9) "parameter ada, default 0" | Diimplementasikan: `distributeFeeBps` (maks 5%) ke `feeRecipient`, default 0. | Sesuai usulan default. |
+| I7 | Q-Y5: whitelist + batas kenaikan harga share untuk valuasi borrow | Hanya whitelist vault (tanpa batas kenaikan harga on-chain). | Batas laju harga butuh snapshot berkala/keeper; untuk MVP vault yang di-whitelist wajib berakuntansi tahan donasi (dicatat di SECURITY.md). |
+| I8 | `ICollateralAdapter.valueInUSDG(tabId)` | `valueInUSDG(tabId, purpose)` + `totalBalance()` + `canBorrow()` | Valuasi YT bergantung pada tujuan (BORROW ketat / LIQUIDATION toleran saat pasar tutup) dan sisa tenor minimum. |
+| I9 | `RiskConfig` | Dinamai `YieldRiskConfig`; status market manual disimpan di `OracleRouter` (role market keeper). | Menghindari bentrok nama dengan `AgentRiskConfig`; status pasar adalah data oracle. |
+| I10 | Interface YT Clipt | `IClipYieldToken { claimable(address); claim(); maturity(); }`, dividen USDG (asumsi Q-Y2). | Spesifikasi Clipt belum tersedia; hanya `YieldTokenAdapter` yang perlu disesuaikan. |
 | I6 | PolicyAccount `execute` | Selain whitelist (target, selector), aliran keluar USDG selama `execute` juga dihitung ke cap harian (konservatif, bisa terhitung ganda dengan `approveSpender`). | Mencegah jalur keluar USDG yang tidak terhitung. |
 
 ### Status milestone
@@ -728,4 +733,4 @@ Penyimpangan dari desain v0.2 yang ditemukan saat implementasi. Semua didokument
 | 5 | ✅ Interface Fase 2 + stub TabManager |
 | 6 | ✅ Frontend + script deploy anvil/testnet |
 | 7 | ✅ SECURITY.md |
-| 8+ | Fase 2 penuh — lihat bagian berikutnya bila sudah diimplementasikan |
+| 8 | ✅ Fase 2 penuh: TabManager, YieldRiskConfig, OracleRouter, ERC4626ShareAdapter, YieldTokenAdapter, YieldHarvester, Liquidator + unit/fuzz/invariant/skenario stres; frontend Yield Tab |

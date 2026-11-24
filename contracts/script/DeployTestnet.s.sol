@@ -47,9 +47,19 @@ contract DeployTestnet is TabbDeployer {
         Core memory c = _deployCore(usdg, idReg, deployer, guardian, treasury);
         if (curator != deployer) PayeeRegistry(c.payeeRegistry).setCurator(curator, true);
         if (finalOwner != deployer) _handOver(c, finalOwner);
+
+        // Phase 2 (opt-in): DEPLOY_YIELD=true. Real vault / YT / feeds are TODO in Config.s.sol; with DEPLOY_MOCKS the
+        // mock vault + YT are wired, otherwise only the core is deployed and collateral must be added by the owner.
+        bool yieldOn = vm.envOr("DEPLOY_YIELD", false);
+        YieldCore memory y;
+        if (yieldOn) {
+            y = _deployYieldCore(usdg, c.irm, deployer, guardian, treasury);
+            if (mocks) y = _deployYieldMocks(y, usdg);
+        }
         vm.stopBroadcast();
 
         _writeDeployment(c, "", address(0));
+        if (yieldOn) _writeYield(y);
     }
 
     /// @dev Starts Ownable2Step transfers; `finalOwner` (e.g. a TimelockController) must call acceptOwnership().

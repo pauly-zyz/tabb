@@ -1,6 +1,6 @@
 # Tabb — Security Notes & Pre-Audit Checklist
 
-Status: **pre-audit**. Scope: Phase 1 (agent credit) + shared pool. Phase 2 (yield credit) is interface/stub only.
+Status: **pre-audit**. Scope: Phase 1 (agent credit), Phase 2 (yield credit) and the shared pool code (deployed as two separate pools).
 
 ---
 
@@ -11,7 +11,7 @@ Status: **pre-audit**. Scope: Phase 1 (agent credit) + shared pool. Phase 2 (yie
 | Pool | `contracts/src/pool/TabbPool.sol`, `InterestRateModel.sol` |
 | Agent credit | `contracts/src/agent/*.sol` |
 | Access control / math | `contracts/src/access/TabbAccessControl.sol`, `contracts/src/libraries/TabbMath.sol` |
-| Out of scope (stub) | `contracts/src/yield/TabManager.sol` |
+| Yield credit | `contracts/src/yield/*.sol` |
 | Out of scope (test/local only) | `contracts/test/mocks/*`, `contracts/script/*` |
 
 Compiler `0.8.24`, optimizer 200 runs, `evm_version = shanghai`, OpenZeppelin `v5.1.0`. No upgradeability, no proxies
@@ -58,6 +58,19 @@ except non-upgradeable EIP-1167 clones (`PolicyAccount`, `RepaymentSplitter`).
 | R15 | Robinhood Chain specifics (sequencer downtime, `block.timestamp` granularity on L2). | Agent credit uses no price oracle; time-based deadlines tolerate small skews (days). Sequencer checks are a Phase 2 concern. |
 | R16 | Regulatory: undercollateralised lending to agents/owners may require KYC. | Owner allowlist hook in `AgentRiskConfig` (off by default). Legal decision for the team. |
 
+### Phase 2 (yield credit) specific
+
+| # | Risk | Mitigation / status |
+|---|---|---|
+| Y1 | ERC-4626 share-price manipulation (donation / thin vault) inflating collateral value. | Only owner-whitelisted vaults; no on-chain growth bound yet (DESIGN I7) — **vault selection is a critical trust assumption**. |
+| Y2 | Stock-linked YT gaps when the market reopens. | Market-closed mode: borrow and withdraw use `closedMarketLtvBps` (default 0 = frozen); low LTV 40%, LT 50%, bonus 10%; maturity haircut. Tested: −30% gap while closed → full liquidation works on the extended heartbeat. |
+| Y3 | Stale prices during market closure used for liquidation. | Extended `heartbeatClosed` only for LIQUIDATION purpose; BORROW always uses the strict heartbeat. |
+| Y4 | Sequencer downtime on Robinhood Chain. | Sequencer uptime feed + grace period blocks borrow and liquidation; feed address TODO (Q-Y10). If no feed exists, the check can be disabled and the guardian must pause manually. |
+| Y5 | YT dividend attribution errors. | Accumulator with checkpoint before every balance change; dust from rounding stays in the adapter. Interface of Clipt YT is assumed (I10). |
+| Y6 | In-kind liquidation of YT may lack buyers. | Bonus 10%, borrow cap 50k, owner-set supply caps. |
+| Y7 | Self-repaying only if yield > interest. | UI shows HF/LTV; harvest never increases debt (invariant). Excess yield credited (pull) after payoff. |
+| Y8 | 1-wei rounding dust may be credited to the owner while debt remains after a partial harvest payment. | Benign (owner's own yield); documented in fuzz test. |
+
 ## 4. Implemented protections
 
 - `ReentrancyGuard` on every external state-changing entrypoint of pool, manager, vault, PolicyAccount, splitter.
@@ -89,8 +102,11 @@ except non-upgradeable EIP-1167 clones (`PolicyAccount`, `RepaymentSplitter`).
   9. per-owner principal ≤ cap
 - Scenarios: self-repaying E2E; agent stops paying; sybil owner with 10 agents defaulting; identity transferred with
   debt; operator key compromised.
-- Coverage: `AgentCreditManager` ≈ 99.7% lines / 91.8% branches; `PolicyAccount` 98%; `RepaymentSplitter` 100%;
-  `AgentCreditScore` 100%; `TabbPool` 93.5%.
+- Phase 2: unit tests (oracle, risk config, both adapters, TabManager, harvester, liquidator), fuzz (borrow/repay,
+  harvest, withdraw, liquidation), invariants (debt ≤ assets; HF ≥ 1 right after borrow/withdraw; lender bounded;
+  harvest never increases debt; scaled-debt and custody consistency), E2E self-repaying tab and market-closed stress.
+- Coverage (206 tests): `AgentCreditManager` 99.7% lines; `TabManager` 100%; `YieldHarvester` 100%; `Liquidator` 100%;
+  `PolicyAccount` 98%; `RepaymentSplitter` 100%; `AgentCreditScore` 100%; `TabbPool` 93.5%; total 91.6%.
 
 ## 6. Pre-audit checklist
 

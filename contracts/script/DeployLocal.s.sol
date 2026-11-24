@@ -9,6 +9,7 @@ import {OwnerStakeVault} from "../src/agent/OwnerStakeVault.sol";
 import {AgentCreditManager} from "../src/agent/AgentCreditManager.sol";
 import {MockUSDG} from "../test/mocks/MockUSDG.sol";
 import {MockERC8004IdentityRegistry} from "../test/mocks/MockERC8004IdentityRegistry.sol";
+import {MockYieldToken} from "../test/mocks/MockYieldToken.sol";
 
 /// @notice Local anvil deployment with mocks and demo data.
 ///   anvil &
@@ -55,6 +56,20 @@ contract DeployLocal is TabbDeployer {
         vm.stopBroadcast();
 
         _writeDeployment(c, "demoProvider", PROVIDER);
+
+        // ---------------- Phase 2: yield credit (separate pool) ----------------
+        vm.startBroadcast(ANVIL_PK0);
+        YieldCore memory y = _deployYieldCore(address(usdg), c.irm, deployer, deployer, deployer);
+        y = _deployYieldMocks(y, address(usdg));
+        for (uint256 i; i < 5; ++i) {
+            MockYieldToken(y.yieldToken).mint(_anvil(i), 10_000e18);
+        }
+        vm.stopBroadcast();
+        vm.startBroadcast(ANVIL_PK1);
+        IERC20(address(usdg)).approve(y.pool, type(uint256).max);
+        TabbPool(y.pool).deposit(50_000e6, lender);
+        vm.stopBroadcast();
+        _writeYield(y);
     }
 
     function _anvil(uint256 i) internal pure returns (address) {

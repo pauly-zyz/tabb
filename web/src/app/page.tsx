@@ -89,7 +89,7 @@ export default function Home() {
         <Card>
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-semibold">Phase 2 — Yield credit</h3>
-            <span className="rounded-full bg-zinc-500/15 px-2.5 py-0.5 text-xs font-semibold text-zinc-300">Next</span>
+            <span className="rounded-full bg-tab-400/15 px-2.5 py-0.5 text-xs font-semibold text-tab-400">Pre-audit</span>
           </div>
           <p className="mt-2 text-sm text-zinc-400">
             Self-repaying, overcollateralized loans against yield-bearing assets (USDG vault shares, stock-dividend YT).

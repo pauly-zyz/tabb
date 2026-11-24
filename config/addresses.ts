@@ -25,8 +25,24 @@ export interface TabbAddresses {
   interestRateModel: Address;
   // demo only
   demoProvider?: Address;
+  /** Phase 2 — yield credit (separate pool). Undefined until deployed. */
+  yield?: YieldAddresses;
   /** true when USDG / registry are local mocks (enables faucet + "register demo agent") */
   mocks: boolean;
+}
+
+export interface YieldAddresses {
+  pool: Address;
+  oracle: Address;
+  risk: Address;
+  tabManager: Address;
+  harvester: Address;
+  liquidator: Address;
+  shareAdapter: Address; // ERC-4626 USDG vault shares
+  ytAdapter: Address; // Clipt stock-dividend YT
+  vault: Address; // TODO on 4663: USDG ERC-4626 vault (e.g. Morpho)
+  yieldToken: Address; // TODO on 4663: Clipt YT
+  ytFeed?: Address; // mock feed (local only)
 }
 
 export const ADDRESSES: Record<number, TabbAddresses> = {
@@ -43,6 +59,19 @@ export const ADDRESSES: Record<number, TabbAddresses> = {
     agentCreditManager: "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
     demoProvider: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
     mocks: true,
+    yield: {
+      pool: "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
+      oracle: "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f",
+      risk: "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+      tabManager: "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F",
+      harvester: "0x09635F643e140090A9A8Dcd712eD6285858ceBef",
+      liquidator: "0xc5a5C42992dECbae36851359345FE25997F5C42d",
+      shareAdapter: "0x851356ae760d987E095750cCeb3bC6014560891C",
+      ytAdapter: "0xf5059a5D33d5853360D16C683c16e67980206f36",
+      vault: "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      yieldToken: "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      ytFeed: "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+    },
   },
   4663: {
     usdg: ZERO, // TODO: USDG on Robinhood Chain (verify decimals() == 6)
@@ -56,6 +85,8 @@ export const ADDRESSES: Record<number, TabbAddresses> = {
     payeeRegistry: ZERO, // TODO
     agentCreditManager: ZERO, // TODO
     mocks: false,
+    // yield: TODO — Phase 2 addresses (pool, oracle, risk, tabManager, harvester, liquidator, adapters,
+    //        USDG ERC-4626 vault, Clipt YT) after the manual post-audit deploy
   },
   // TODO: Robinhood Chain testnet — <chainId>: { ...addresses from contracts/deployments/<chainId>.json }
 };

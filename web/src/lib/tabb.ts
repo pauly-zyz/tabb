@@ -44,3 +44,18 @@ export interface PaymentStatus {
   delinquentEligibleAt: bigint;
   defaultEligibleAt: bigint;
 }
+
+/** Phase 2 (yield credit) addresses, if deployed on the active chain. */
+export const Y = addrs?.yield;
+export const yieldDeployed = deployed && !!Y;
+
+export interface YieldTab {
+  owner: `0x${string}`;
+  adapter: `0x${string}`;
+  open: boolean;
+  openedAt: bigint;
+  scaledDebt: bigint;
+  principal: bigint;
+  yieldRepaid: bigint;
+  totalRepaid: bigint;
+}

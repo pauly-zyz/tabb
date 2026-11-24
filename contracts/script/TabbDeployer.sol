@@ -22,6 +22,20 @@ import {IAgentCreditScore} from "../src/interfaces/IAgentCreditScore.sol";
 import {IOwnerStakeVault} from "../src/interfaces/IOwnerStakeVault.sol";
 import {IPayeeRegistry} from "../src/interfaces/IPayeeRegistry.sol";
 import {IAgentCreditManager} from "../src/interfaces/IAgentCreditManager.sol";
+import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
+import {IClipYieldToken} from "../src/interfaces/IClipYieldToken.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {OracleRouter} from "../src/yield/OracleRouter.sol";
+import {YieldRiskConfig} from "../src/yield/YieldRiskConfig.sol";
+import {TabManager} from "../src/yield/TabManager.sol";
+import {YieldHarvester} from "../src/yield/YieldHarvester.sol";
+import {Liquidator} from "../src/yield/Liquidator.sol";
+import {ERC4626ShareAdapter} from "../src/yield/ERC4626ShareAdapter.sol";
+import {YieldTokenAdapter} from "../src/yield/YieldTokenAdapter.sol";
+import {MockUSDG} from "../test/mocks/MockUSDG.sol";
+import {MockERC4626Vault} from "../test/mocks/MockERC4626Vault.sol";
+import {MockYieldToken} from "../test/mocks/MockYieldToken.sol";
+import {MockAggregator} from "../test/mocks/MockAggregator.sol";
 
 /// @notice Shared deployment logic for local and testnet scripts. Mainnet is intentionally NOT supported.
 abstract contract TabbDeployer is Script {
@@ -108,6 +122,127 @@ abstract contract TabbDeployer is Script {
         // Seed deposit to a dead address (inflation-attack hardening on top of the virtual offset).
         IERC20(usdg).approve(address(pool), SEED_DEPOSIT);
         pool.deposit(SEED_DEPOSIT, address(0xdead));
+    }
+
+    struct YieldCore {
+        address pool;
+        address oracle;
+        address risk;
+        address tabManager;
+        address harvester;
+        address liquidator;
+        address vault;
+        address yieldToken;
+        address ytFeed;
+        address shareAdapter;
+        address ytAdapter;
+    }
+
+    /// @dev Phase 2: separate yield-credit pool (Q-U1) + TabManager and keeper entrypoints.
+    function _deployYieldCore(address usdg, address irm, address deployer, address guardian, address treasury)
+        internal
+        returns (YieldCore memory y)
+    {
+        _assertNotMainnet();
+        TabbPool pool2 = new TabbPool(
+            IERC20(usdg),
+            "Tabb Yield Credit USDG",
+            "tyUSDG",
+            deployer,
+            guardian,
+            InterestRateModel(irm),
+            treasury,
+            RESERVE_FACTOR_BPS
+        );
+        y.pool = address(pool2);
+        OracleRouter oracle = new OracleRouter(deployer, guardian);
+        y.oracle = address(oracle);
+        YieldRiskConfig risk = new YieldRiskConfig(deployer, guardian, _yieldGlobal());
+        y.risk = address(risk);
+        TabManager tm = new TabManager(IERC20(usdg), ITabbPool(address(pool2)), oracle, risk, deployer, guardian);
+        y.tabManager = address(tm);
+        y.harvester = address(new YieldHarvester(tm));
+        y.liquidator = address(new Liquidator(tm));
+        tm.setPeriphery(y.harvester, y.liquidator);
+        pool2.setCreditLine(address(tm), 1_000_000e6, 0, true);
+        IERC20(usdg).approve(address(pool2), SEED_DEPOSIT);
+        pool2.deposit(SEED_DEPOSIT, address(0xdead));
+    }
+
+    function _yieldGlobal() internal pure returns (YieldRiskConfig.GlobalParams memory) {
+        return YieldRiskConfig.GlobalParams({
+            closeFactorBps: 5_000,
+            fullLiquidationHfWad: 0.95e18,
+            dustDebt: 100e6,
+            minDebt: 10e6,
+            harvestRewardBps: 50,
+            maxHarvestReward: 25e6,
+            minHarvest: 1e6
+        });
+    }
+
+    /// @dev Local/testnet only: mock USDG vault + mock dividend YT + feed, adapters and DESIGN.md §9.3 parameters.
+    function _deployYieldMocks(YieldCore memory y, address usdg) internal returns (YieldCore memory) {
+        MockERC4626Vault vault = new MockERC4626Vault(IERC20(usdg));
+        MockYieldToken ytk = new MockYieldToken(MockUSDG(usdg), block.timestamp + 730 days);
+        MockAggregator feed = new MockAggregator(8, 10e8);
+        y.vault = address(vault);
+        y.yieldToken = address(ytk);
+        y.ytFeed = address(feed);
+        y.shareAdapter = address(new ERC4626ShareAdapter(IERC4626(address(vault)), y.tabManager));
+        y.ytAdapter = address(
+            new YieldTokenAdapter(
+                IClipYieldToken(address(ytk)),
+                IERC20(usdg),
+                OracleRouter(y.oracle),
+                y.tabManager,
+                YieldTokenAdapter.Haircut({baseBps: 1_000, annualBps: 1_000, maxBps: 5_000, minTimeToMaturity: 30 days})
+            )
+        );
+        // generous heartbeats: mock feeds are not pushed by a keeper
+        OracleRouter(y.oracle).setFeed(address(ytk), IAggregatorV3(address(feed)), 365 days, 365 days);
+        YieldRiskConfig risk = YieldRiskConfig(y.risk);
+        risk.setCollateral(
+            y.shareAdapter,
+            YieldRiskConfig.CollateralParams({
+                status: YieldRiskConfig.Status.Active,
+                maxLtvBps: 8_000,
+                liqThresholdBps: 8_500,
+                liqBonusBps: 500,
+                closedMarketLtvBps: 8_000,
+                supplyCap: 1_000_000e6,
+                borrowCap: 500_000e6
+            })
+        );
+        risk.setCollateral(
+            y.ytAdapter,
+            YieldRiskConfig.CollateralParams({
+                status: YieldRiskConfig.Status.Active,
+                maxLtvBps: 4_000,
+                liqThresholdBps: 5_000,
+                liqBonusBps: 1_000,
+                closedMarketLtvBps: 0,
+                supplyCap: 250_000e6,
+                borrowCap: 50_000e6
+            })
+        );
+        return y;
+    }
+
+    function _writeYield(YieldCore memory y) internal {
+        string memory k = "yield";
+        vm.serializeAddress(k, "pool", y.pool);
+        vm.serializeAddress(k, "oracle", y.oracle);
+        vm.serializeAddress(k, "risk", y.risk);
+        vm.serializeAddress(k, "tabManager", y.tabManager);
+        vm.serializeAddress(k, "harvester", y.harvester);
+        vm.serializeAddress(k, "liquidator", y.liquidator);
+        vm.serializeAddress(k, "vault", y.vault);
+        vm.serializeAddress(k, "yieldToken", y.yieldToken);
+        vm.serializeAddress(k, "ytFeed", y.ytFeed);
+        vm.serializeAddress(k, "shareAdapter", y.shareAdapter);
+        string memory json = vm.serializeAddress(k, "ytAdapter", y.ytAdapter);
+        vm.writeJson(json, string.concat("./deployments/", vm.toString(block.chainid), ".yield.json"));
     }
 
     function _writeDeployment(Core memory c, string memory extraKey, address extraValue) internal {
