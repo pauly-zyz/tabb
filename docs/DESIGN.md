@@ -2,7 +2,7 @@
 
 > **Put it on the tab. Your yield pays it back.**
 >
-> Status: **DRAFT v0.2 — menunggu persetujuan** (Milestone 1)
+> Status: **v0.3 — disetujui; Fase 1 diimplementasikan** (lihat §18 untuk catatan implementasi)
 > Chain target: Robinhood Chain (Arbitrum Orbit L2, chain ID `4663`)
 
 ### Changelog
@@ -10,6 +10,7 @@
 | Versi | Perubahan |
 |---|---|
 | v0.1 | Draft awal: Fase 1 = kredit berbasis yield, Fase 2 = kredit AI agent (stub). |
+| v0.3 | Disetujui pemilik proyek (semua usulan default di §17 diterima). Catatan implementasi & penyimpangan kecil di §18. |
 | v0.2 | **Urutan fase dibalik atas permintaan pemilik proyek.** Fase 1 = **kredit AI agent** (dirancang penuh). Fase 2 = **kredit berbasis yield** (desain v0.1 dipertahankan di §9, dibangun setelah Fase 1). `TabbPool` mendukung *spread* bunga per credit line. Milestone dan pertanyaan terbuka diperbarui. |
 
 ---
@@ -700,3 +701,31 @@ Keputusan berikut **belum diputuskan**. Usulan default ditulis agar bisa langsun
 | **Q-Y12** | Tab bisa ditransfer (NFT)? | Tidak di MVP. |
 | **Q-Y13** | Siapa yang set status market manual? | Role `MARKET_KEEPER`. |
 | **Q-Y14** | Reward keeper dari yield atau reserves? | Dari yield. |
+
+---
+
+## 18. Catatan implementasi (v0.3)
+
+Penyimpangan dari desain v0.2 yang ditemukan saat implementasi. Semua didokumentasikan juga di `docs/SECURITY.md`.
+
+| # | Desain v0.2 | Implementasi | Alasan |
+|---|---|---|---|
+| I1 | `totalAssets = cash + totalDebt − reserves` | Bagian reserve dari bunga **dicetak sebagai share pool milik treasury** (pola Aave). `totalAssets = cash + totalDebt`. Saat bad debt, share treasury dibakar lebih dulu (lapisan asuransi). | Dengan pengurangan reserve, invariant "total utang ≤ total aset" bisa gagal pada utilisasi 100% (reserve tumbuh melebihi cash). Dengan share treasury invariant selalu benar dan reserve ikut menanggung risiko. |
+| I2 | Pembayaran minimum = bunga periode + 10% pokok | Pembayaran minimum = `minPaymentBps` (default **12%**) × utang di awal periode. Kelebihan bayar tidak dibawa ke periode berikutnya. Periode yang terpenuhi digulir secara *lazy* (maks. 12 periode per interaksi). | Bunga per periode tidak bisa dihitung murah saat ada draw di tengah periode; angka tetap lebih sederhana untuk diaudit dan dipahami pengguna. 12% ≈ 10% pokok + bunga ±14% APR. |
+| I3 | `assumeTab` untuk pemilik NFT baru saat utang > 0 | Tidak didukung. Pemilik baru hanya bisa membuka tab setelah tab lama lunas dan ditutup. Stake dicatat per `(agentId, staker)`, jadi stake pemilik lama tidak tercampur. | Mengalihkan utang + stake antar pemilik menambah kompleksitas dan permukaan serangan. Dengan utang, pemilik lama tetap liable (draw & spending beku). |
+| I4 | — | `availableCredit()` memperhitungkan pembulatan scaled debt, dan `draw` mengecek utang **persis** setelah draw (bukan `debt + amount`). | Ditemukan oleh invariant test (selisih 1 wei). |
+| I5 | Fee distribute (Q-A9) "parameter ada, default 0" | Diimplementasikan: `distributeFeeBps` (maks 5%) ke `feeRecipient`, default 0. | Sesuai usulan default. |
+| I6 | PolicyAccount `execute` | Selain whitelist (target, selector), aliran keluar USDG selama `execute` juga dihitung ke cap harian (konservatif, bisa terhitung ganda dengan `approveSpender`). | Mencegah jalur keluar USDG yang tidak terhitung. |
+
+### Status milestone
+
+| # | Status |
+|---|---|
+| 1 | ✅ DESIGN.md |
+| 2 | ✅ TabbPool, InterestRateModel + test |
+| 3 | ✅ Registry adapter, stake vault, risk config, credit score + test |
+| 4 | ✅ AgentCreditManager, PolicyAccount, PayeeRegistry, RepaymentSplitter, fuzz/invariant/skenario |
+| 5 | ✅ Interface Fase 2 + stub TabManager |
+| 6 | ✅ Frontend + script deploy anvil/testnet |
+| 7 | ✅ SECURITY.md |
+| 8+ | Fase 2 penuh — lihat bagian berikutnya bila sudah diimplementasikan |
