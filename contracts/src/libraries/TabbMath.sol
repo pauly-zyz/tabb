@@ -16,11 +16,6 @@ library TabbMath {
         return Math.mulDiv(scaled, index, RAY, Math.Rounding.Ceil);
     }
 
-    /// @dev Scaled -> assets, rounding down.
-    function toAssetsDown(uint256 scaled, uint256 index) internal pure returns (uint256) {
-        return Math.mulDiv(scaled, index, RAY, Math.Rounding.Floor);
-    }
-
     /// @dev Assets -> scaled, rounding up (used when adding debt).
     function toScaledUp(uint256 assets, uint256 index) internal pure returns (uint256) {
         return Math.mulDiv(assets, RAY, index, Math.Rounding.Ceil);
@@ -38,13 +33,5 @@ library TabbMath {
     /// @dev Linear growth factor over `dt` for an annual WAD rate, expressed in RAY.
     function growthFactor(uint256 ratePerYearWad, uint256 dt) internal pure returns (uint256) {
         return RAY + Math.mulDiv(ratePerYearWad * 1e9, dt, YEAR);
-    }
-
-    function min(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a < b ? a : b;
-    }
-
-    function max(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a > b ? a : b;
     }
 }
