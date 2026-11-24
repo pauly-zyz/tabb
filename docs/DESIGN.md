@@ -2,8 +2,15 @@
 
 > **Put it on the tab. Your yield pays it back.**
 >
-> Status: **DRAFT v0.1 — menunggu persetujuan** (Milestone 1)
+> Status: **DRAFT v0.2 — menunggu persetujuan** (Milestone 1)
 > Chain target: Robinhood Chain (Arbitrum Orbit L2, chain ID `4663`)
+
+### Changelog
+
+| Versi | Perubahan |
+|---|---|
+| v0.1 | Draft awal: Fase 1 = kredit berbasis yield, Fase 2 = kredit AI agent (stub). |
+| v0.2 | **Urutan fase dibalik atas permintaan pemilik proyek.** Fase 1 = **kredit AI agent** (dirancang penuh). Fase 2 = **kredit berbasis yield** (desain v0.1 dipertahankan di §9, dibangun setelah Fase 1). `TabbPool` mendukung *spread* bunga per credit line. Milestone dan pertanyaan terbuka diperbarui. |
 
 ---
 
@@ -13,12 +20,12 @@
 2. [Tujuan dan non-tujuan](#2-tujuan-dan-non-tujuan)
 3. [Arsitektur tingkat tinggi](#3-arsitektur-tingkat-tinggi)
 4. [Daftar contract](#4-daftar-contract)
-5. [Akuntansi dan matematika](#5-akuntansi-dan-matematika)
-6. [Diagram alur](#6-diagram-alur)
-7. [Parameter risiko awal](#7-parameter-risiko-awal)
-8. [Oracle, market closed, dan sequencer](#8-oracle-market-closed-dan-sequencer)
-9. [Admin, pause, dan governance](#9-admin-pause-dan-governance)
-10. [Fase 2: kredit AI agent (interface + stub)](#10-fase-2-kredit-ai-agent-interface--stub)
+5. [Fase 1 — Kredit AI agent (detail)](#5-fase-1--kredit-ai-agent-detail)
+6. [Diagram alur Fase 1](#6-diagram-alur-fase-1)
+7. [Parameter risiko awal Fase 1](#7-parameter-risiko-awal-fase-1)
+8. [TabbPool dan InterestRateModel (bersama)](#8-tabbpool-dan-interestratemodel-bersama)
+9. [Fase 2 — Kredit berbasis yield (desain, dibangun nanti)](#9-fase-2--kredit-berbasis-yield-desain-dibangun-nanti)
+10. [Admin, pause, dan governance](#10-admin-pause-dan-governance)
 11. [Keamanan dan mitigasi](#11-keamanan-dan-mitigasi)
 12. [Strategi testing](#12-strategi-testing)
 13. [Struktur repo dan konfigurasi](#13-struktur-repo-dan-konfigurasi)
@@ -33,14 +40,16 @@
 
 Tabb adalah protokol kredit di mana pinjaman dibayar dari **arus pendapatan masa depan**.
 
-- **Fase 1 — Yield-backed credit.** Pengguna menaruh aset penghasil yield (share vault ERC-4626 berbasis USDG, atau token YT dividen saham dari Clipt) sebagai jaminan, lalu meminjam USDG dari pool lender. Yield jaminan dipanen (harvest) oleh keeper dan otomatis dipakai melunasi bunga, lalu pokok. Pinjaman selalu **overcollateralized**; kalau nilai jaminan turun, posisi bisa dilikuidasi.
-- **Fase 2 — Agent credit.** AI agent yang terdaftar di registry ERC-8004 bisa membuka tab kecil berbasis reputasi. Pendapatan agent wajib melewati `RepaymentSplitter` yang memotong X% untuk membayar utang. Di MVP hanya interface dan stub.
+- **Fase 1 — Agent credit (dibangun sekarang).** AI agent yang terdaftar di registry ERC-8004 bisa membuka *tab* kecil. Limitnya ditentukan oleh **stake pemilik**, **pendapatan yang terbukti lewat Tabb**, **umur**, dan **riwayat bayar**. Dana pinjaman tidak dikirim ke wallet bebas, tapi ke **PolicyAccount** yang hanya bisa membayar ke penerima yang di-whitelist. Semua pendapatan agent masuk lewat **RepaymentSplitter** yang otomatis memotong X% untuk melunasi utang.
+- **Fase 2 — Yield-backed credit (dibangun setelahnya).** Pengguna menaruh aset penghasil yield sebagai jaminan dan meminjam USDG. Yield jaminan melunasi utang (self-repaying, overcollateralized). Desain v0.1 dipertahankan di §9.
+
+Tagline tetap berlaku untuk keduanya: untuk agent, "yield" adalah pendapatan dari jasanya.
 
 Prinsip desain:
 
-1. **Pool tidak tahu soal jaminan.** `TabbPool` hanya meminjamkan ke *credit line* yang di-whitelist (Fase 1: `TabManager`; Fase 2: `AgentCreditManager`). Ini kunci modularitas.
-2. **TabManager tidak tahu detail aset.** Semua logika per jenis aset (custody, valuasi, harvest) ada di *collateral adapter*.
-3. **Konservatif secara default.** Pembulatan selalu menguntungkan protokol, harga oracle divalidasi ketat, dan aksi yang menambah risiko (borrow, withdraw) diblokir lebih dulu saat ada keraguan, sementara aksi yang mengurangi risiko (repay, addCollateral, harvest) tidak pernah dipause.
+1. **Pool tidak tahu siapa peminjamnya.** `TabbPool` (ERC-4626) hanya meminjamkan ke *credit line* yang di-whitelist dengan cap dan spread bunga masing-masing. Fase 1: `AgentCreditManager`. Fase 2: `TabManager`. Keduanya bisa ditambahkan tanpa mengubah pool.
+2. **Kerugian maksimum per agent dibatasi dan bisa dihitung.** Kredit agent tidak dijamin aset penuh, jadi keamanannya datang dari: (a) stake pemilik sebagai *first loss*; (b) dana pinjaman yang tidak terpakai tetap terkunci di PolicyAccount dan bisa ditarik kembali; (c) limit kecil yang naik bertahap; (d) cap per agent, per pemilik, dan global.
+3. **Konservatif secara default.** Aksi yang menambah risiko (draw, tarik stake) diblokir lebih dulu saat ada keraguan. Aksi yang mengurangi risiko (repay, distribute, tambah stake) tidak pernah dipause.
 
 ---
 
@@ -48,20 +57,22 @@ Prinsip desain:
 
 **Tujuan MVP (Fase 1)**
 
-- Lender: deposit/withdraw USDG ke pool ERC-4626 dan menerima bunga.
-- Borrower: satu tab per (pengguna, jenis jaminan); openTab, addCollateral, borrow, repay, withdrawCollateral, closeTab.
-- Self-repaying: `harvest(tabId)` permissionless dengan reward keeper.
-- Likuidasi parsial dengan close factor dan bonus.
-- Mode "market closed" untuk jaminan terkait saham.
-- Interface Fase 2 tersedia tanpa perlu merombak Fase 1.
+- Lender: deposit/withdraw USDG ke pool ERC-4626 dan menerima bunga (termasuk premi risiko agent).
+- Pemilik agent: daftarkan agent (sudah terdaftar di ERC-8004) ke Tabb, setor stake, buka tab, lalu agent menarik dana (*draw*) ke PolicyAccount.
+- Agent memakai dana hanya untuk membayar penerima yang di-whitelist (mis. penyedia compute/API/data).
+- Pendapatan agent → RepaymentSplitter → X% melunasi utang, sisanya ke wallet payout agent.
+- Status kredit: Active → Delinquent → Defaulted, dengan *waterfall* pemulihan dana yang deterministik.
+- Skor dan limit kredit dihitung on-chain secara deterministik dan transparan.
+- Struktur tetap siap untuk Fase 2 (kredit berbasis yield) tanpa merombak pool.
 
 **Non-tujuan MVP**
 
-- Upgradeability (contract immutable; migrasi via deploy baru).
-- Tranche senior/junior (struktur hook disiapkan, implementasi Fase 2).
-- Tab yang bisa ditransfer (NFT).
-- Swap otomatis hasil yield non-USDG.
-- Deploy mainnet (dilakukan pemilik proyek setelah audit).
+- Upgradeability (contract immutable).
+- Tranche senior/junior penuh (hook `ILossAbsorber` disiapkan).
+- Full ERC-4337 smart account (PolicyAccount sederhana dengan *operator key*; kompatibilitas 4337 → Q-A12).
+- Pendapatan dalam token selain USDG (Q-A5).
+- Penagihan off-chain / recourse hukum.
+- Deploy mainnet.
 
 ---
 
@@ -69,222 +80,213 @@ Prinsip desain:
 
 ```mermaid
 flowchart LR
-    subgraph Lenders
-        L[Lender]
-    end
-    subgraph Borrowers
-        B[Pemilik tab]
-    end
-    K[Keeper] -->|harvest tabId| YH[YieldHarvester]
-    LQ[Liquidator bot] -->|liquidate| LIQ[Liquidator]
-
-    L -->|deposit / withdraw USDG| POOL[TabbPool<br/>ERC-4626]
-    B -->|open / borrow / repay / withdraw| TM[TabManager]
-
-    TM -->|drawDebt / repayDebt| POOL
+    L[Lender] -->|deposit / withdraw USDG| POOL[TabbPool<br/>ERC-4626]
     POOL --> IRM[InterestRateModel]
-    TM --> RC[RiskConfig]
-    TM --> OR[OracleRouter]
-    TM --> A1[ERC4626ShareAdapter]
-    TM --> A2[YieldTokenAdapter]
-    A1 --> V[(Vault ERC-4626 USDG<br/>mis. Morpho)]
-    A2 --> YT[(Clipt YT token)]
-    A2 --> OR
-    OR --> CL[(Chainlink feeds<br/>+ sequencer uptime)]
 
-    YH -->|harvestFor| TM
-    LIQ -->|seize / repayOnBehalf| TM
+    OWN[Pemilik agent] -->|stake USDG| SV[OwnerStakeVault]
+    OWN -->|openTab / config| ACM[AgentCreditManager]
+    ACM -->|credit line: draw / repay / writeOff| POOL
+    ACM --> REG[AgentRegistryAdapter<br/>→ ERC-8004 Identity Registry]
+    ACM --> SC[AgentCreditScore]
+    ACM --> ARC[AgentRiskConfig]
+    ACM -->|deploy clone| PA[PolicyAccount<br/>per agent]
+    ACM -->|deploy clone| RS[RepaymentSplitter<br/>per agent]
+    SC --> SV
+    SC --> RS
 
-    subgraph Fase2[Fase 2 — stub]
-        ACM[AgentCreditManager] -.->|credit line| POOL
-        REG[IAgentRegistry ERC-8004]
-        SC[IAgentCreditScore]
-        RS[RepaymentSplitter]
-        PA[IPolicyAccount]
+    AGT[Operator key agent] -->|pay| PA
+    PA -->|hanya payee whitelist| PR[PayeeRegistry]
+    PA --> P1[(Penyedia compute / API)]
+
+    CL[Klien agent] -->|bayar jasa USDG| RS
+    RS -->|split X%| ACM
+    RS -->|sisa| W[Wallet payout agent]
+
+    K[Keeper] -->|distribute / markDelinquent / markDefault| ACM
+
+    subgraph Fase2[Fase 2 — yield credit, nanti]
+        TM[TabManager] -.->|credit line| POOL2[TabbPool kedua<br/>atau pool yang sama Q-U1]
     end
 ```
 
-Hubungan kepercayaan (siapa boleh memanggil siapa):
+Hubungan kepercayaan:
 
 | Pemanggil | Target | Fungsi | Kontrol akses |
 |---|---|---|---|
-| `TabManager` | `TabbPool` | `drawDebt`, `repayDebt`, `writeOff` | whitelist credit line + cap |
-| `TabManager` | Adapter | `deposit`, `withdraw`, `seize`, `harvest` | `onlyTabManager` |
-| `YieldHarvester` | `TabManager` | `harvestFor` | `onlyHarvester` |
-| `Liquidator` | `TabManager` | `liquidateFor` | `onlyLiquidator` |
-| Siapa saja | `YieldHarvester` | `harvest(tabId)` | permissionless |
-| Siapa saja | `Liquidator` | `liquidate(tabId, amount)` | permissionless (HF < 1) |
-| Owner (→ Timelock) | semua | setter parameter, whitelist, unpause | `Ownable2Step` |
+| `AgentCreditManager` | `TabbPool` | `drawDebt`, `repayDebt`, `writeOff` | whitelist credit line + cap |
+| `AgentCreditManager` | `OwnerStakeVault` | `lock`, `unlock`, `slash` | `onlyManager` |
+| `AgentCreditManager` | `PolicyAccount` | `sweep` (saat default/close) | `onlyManager` |
+| `RepaymentSplitter` | `AgentCreditManager` | `repayFromSplitter` | hanya splitter milik agent tsb |
+| Operator agent | `PolicyAccount` | `pay`, `execute` | `onlyOperator` + whitelist |
+| Pemilik agent | `AgentCreditManager` | `openTab`, `draw`, `setOperator`, `setPayout`, `closeTab` | `ownerOf(agentId)` saat itu (lihat §5.1) |
+| Siapa saja | `AgentCreditManager` | `repay`, `markDelinquent`, `markDefault` | permissionless, cek kondisi |
+| Siapa saja | `RepaymentSplitter` | `distribute()` | permissionless |
+| Owner (→ Timelock) | semua | parameter, whitelist payee, credit line, unpause | `Ownable2Step` |
 | Guardian | semua yang pausable | `pause*` | role `guardian` |
+| Payee curator | `PayeeRegistry` | tambah/hapus payee | role `PAYEE_CURATOR` (Q-A6) |
 
 ---
 
 ## 4. Daftar contract
 
-### 4.1 Fase 1
+### 4.1 Bersama (dipakai kedua fase)
 
-| Contract | Tipe | Tanggung jawab utama |
-|---|---|---|
-| `TabbPool` | ERC-4626 (OZ v5), `ReentrancyGuard`, `Pausable` | Pool USDG lender. Menyimpan **borrow index global**, total scaled debt, dan scaled debt per credit line. `totalAssets() = cash + totalDebt − reserves`. Hook `ILossAbsorber` untuk tranche junior (Fase 2; `address(0)` di MVP). |
-| `InterestRateModel` | stateless | Model kink: `borrowRate(utilization)`. Satu instance per pool, bisa diganti owner. |
-| `TabManager` | core | Siklus hidup tab, pencatatan utang per tab (scaled debt + principal), cek LTV/HF, routing ke adapter dan pool, saldo kredit pemilik (kelebihan yield). |
-| `RiskConfig` | storage parameter | Parameter per jenis jaminan (adapter): maxLTV, LT, bonus, supply cap, borrow cap, status (ACTIVE/FROZEN/DISABLED), parameter market closed, status pasar fallback. Parameter global: close factor, min debt, reward keeper. |
-| `OracleRouter` | view + konfigurasi | Membaca Chainlink `AggregatorV3Interface` dengan cek staleness (heartbeat per feed, terpisah untuk market open/closed), harga ≤ 0, round tidak lengkap, sequencer uptime + grace period. Menyediakan harga YT ber-haircut berdasarkan sisa jatuh tempo. Menyediakan `isMarketOpen(asset)`. |
-| `ICollateralAdapter` | interface | Abstraksi aset penghasil yield. |
-| `ERC4626ShareAdapter` | adapter | Custody share vault USDG per tab. Yield = kenaikan nilai share di atas *high-water mark* per tab; harvest = redeem share senilai kelebihan itu menjadi USDG. |
-| `YieldTokenAdapter` | adapter | Custody token YT Clipt per tab. Yield = dividen yang bisa di-claim; dibagi per tab dengan akumulator `dividendPerToken` (pola MasterChef). Valuasi via `OracleRouter` + haircut jatuh tempo. |
-| `YieldHarvester` | keeper entrypoint | `harvest(tabId)` permissionless; membayar reward keeper (`rewardBps`, dibatasi `maxReward`) dari yield yang dipanen; sisanya ke TabManager untuk bayar bunga → pokok → kredit pemilik. Juga `harvestMany(tabIds[])`. |
-| `Liquidator` | liquidation entrypoint | Likuidasi parsial: hitung jumlah maksimum (close factor), konversi ke jaminan + bonus, tarik USDG dari likuidator, kirim jaminan, tangani bad debt. |
-| `TabbAccessControl` (abstract) | base | `Ownable2Step` + `guardian` + modifier pause. Dipakai semua contract stateful. |
-
-### 4.2 Interface `ICollateralAdapter` (usulan)
-
-Interface asli di brief (`valueInUSDG()`, `harvest()`, `pendingYield()`) diperluas dengan `tabId` karena adapter melakukan custody per tab:
-
-```solidity
-interface ICollateralAdapter {
-    // --- metadata ---
-    function asset() external view returns (address);          // token jaminan (share vault / YT)
-    function usdg() external view returns (address);
-
-    // --- view ---
-    function balanceOf(uint256 tabId) external view returns (uint256);       // unit token jaminan
-    function valueInUSDG(uint256 tabId) external view returns (uint256);     // nilai jaminan dalam unit USDG (sudah ber-haircut), round down
-    function valueOfAmount(uint256 amount) external view returns (uint256);  // untuk preview/likuidasi
-    function amountForValue(uint256 usdgValue) external view returns (uint256);
-    function pendingYield(uint256 tabId) external view returns (uint256);    // USDG yang akan didapat dari harvest
-    function isEquityLinked() external view returns (bool);                  // true → tunduk ke mode market closed
-
-    // --- mutating (onlyTabManager) ---
-    function deposit(uint256 tabId, address from, uint256 amount) external;
-    function withdraw(uint256 tabId, address to, uint256 amount) external;
-    function seize(uint256 tabId, address to, uint256 amount) external;      // likuidasi
-    function harvest(uint256 tabId, address to) external returns (uint256 usdgOut);
-}
-```
-Unit: lihat §5.1.
-
-### 4.3 Fase 2 (interface + stub)
-
-| Contract | Status MVP |
+| Contract | Tanggung jawab |
 |---|---|
-| `IAgentRegistry` | interface — adapter ke ERC-8004 Identity Registry (agentId → owner, agent wallet, domain/URI). |
-| `IAgentCreditScore` | interface — `scoreOf(agentId)`, `creditLimitOf(agentId)`. |
-| `IPolicyAccount` | interface — smart account yang hanya boleh `execute` ke target whitelist. |
-| `ICreditLine` | interface — kontrak umum credit line ke `TabbPool` (dipakai juga oleh `TabManager`). |
-| `RepaymentSplitter` | stub — struktur dan event, logika `distribute()` minimal, belum dipakai produksi. |
-| `AgentCreditManager` | stub — semua fungsi mutating `revert NotImplemented()`. |
-| `OwnerStakeVault` | stub — penampung stake pemilik agent (anti-sybil). |
+| `TabbPool` | ERC-4626 (OZ v5) untuk lender USDG. Menyimpan **index bunga per credit line** (rate = IRM(utilisasi) + `spreadBps` credit line). `totalAssets = cash + Σ debt credit line − reserves`. Hook `ILossAbsorber` untuk tranche junior nanti. |
+| `InterestRateModel` | Model kink berdasarkan utilisasi. |
+| `TabbAccessControl` (abstract) | `Ownable2Step` + `guardian` + modifier pause. |
+| `ICreditLine` | Interface umum credit line (dipakai `AgentCreditManager` sekarang, `TabManager` nanti). |
+
+### 4.2 Fase 1 — Agent credit
+
+| Contract | Tipe | Tanggung jawab |
+|---|---|---|
+| `IAgentRegistry` | interface | Abstraksi identitas agent: `exists`, `ownerOf`, `agentWallet` (opsional). |
+| `ERC8004RegistryAdapter` | adapter | Implementasi `IAgentRegistry` untuk ERC-8004 Identity Registry (ERC-721: `agentId = tokenId`). Interface standar masih bisa berubah, jadi semua ketergantungan dibatasi di adapter ini. |
+| `OwnerStakeVault` | vault | Menyimpan stake USDG pemilik per `agentId`. Stake dikunci selama ada utang, ada *cooldown* sebelum bisa ditarik, dan bisa di-slash saat default. |
+| `AgentCreditScore` | view + state ringan | Menghitung `creditLimit(agentId)` dan skor 0–1000 dari stake, pendapatan lewat splitter (jendela bergulir), umur di Tabb, dan riwayat siklus bayar. Juga menyimpan riwayat (siklus lunas, default) yang di-update manager. |
+| `AgentRiskConfig` | storage parameter | Parameter global dan tier: min stake, base limit, leverage per tier, revenue advance, cap per agent/pemilik/global, split default/min, spread, jadwal pembayaran minimum, grace, default delay, batas belanja harian. |
+| `AgentCreditManager` | core, credit line | Siklus hidup tab agent: `openTab`, `draw`, `repay`, `repayFromSplitter`, `markDelinquent`, `markDefault`, `closeTab`. Mencatat utang (scaled), pokok, periode pembayaran, status. Men-deploy clone PolicyAccount dan RepaymentSplitter (EIP-1167). |
+| `PolicyAccount` | clone per agent | Menerima dana pinjaman. Operator agent hanya bisa `pay(token, payee, amount)` ke payee whitelist (dengan batas harian), atau `execute(target, data)` ke target + selector whitelist. Tidak ada transfer bebas. Manager bisa `sweep` saat default/close. |
+| `PayeeRegistry` | whitelist global | Daftar payee (alamat penerima pembayaran) dan pasangan target+selector yang diizinkan untuk PolicyAccount. |
+| `RepaymentSplitter` | clone per agent | Alamat pembayaran publik agent. `distribute()`: `splitBps` dari saldo USDG → `repayFromSplitter`; sisanya → wallet payout. Mencatat pendapatan per epoch untuk skor. Jika utang 0, 100% diteruskan ke payout. |
+
+### 4.3 Fase 2 — Yield credit (desain di §9)
+
+`TabManager`, `RiskConfig`, `OracleRouter`, `ICollateralAdapter`, `ERC4626ShareAdapter`, `YieldTokenAdapter`, `YieldHarvester`, `Liquidator`.
+
+Di Fase 1 cukup interface-nya (`ICollateralAdapter`, `IOracleRouter`) dan stub `TabManager` yang mengimplementasi `ICreditLine` dengan fungsi mutating `revert NotImplemented()`. Ini membuktikan pool siap menerima credit line kedua.
 
 ---
 
-## 5. Akuntansi dan matematika
+## 5. Fase 1 — Kredit AI agent (detail)
 
-### 5.1 Unit dan desimal
+### 5.1 Identitas dan kepemilikan
 
-- USDG diasumsikan **6 desimal** (perlu diverifikasi di chain → `decimals()` dibaca saat deploy dan di-assert, tidak di-hardcode di logika).
-- Semua nilai jaminan dan utang di `TabManager` dinyatakan dalam **unit USDG native** (desimal USDG) agar perbandingan langsung tanpa konversi.
-- Harga oracle dinormalisasi ke **WAD (1e18)** di `OracleRouter`.
-- Parameter persentase dalam **basis poin (bps, 10_000 = 100%)**.
-- Index bunga dalam **RAY (1e27)**.
+- Agent harus sudah terdaftar di ERC-8004 Identity Registry. `agentId` = tokenId ERC-721.
+- **Satu tab per `agentId`.**
+- Saat `openTab`, `ownerOf(agentId)` dicatat sebagai **borrower of record** (`tab.owner`). Stake milik alamat ini yang menjadi first loss.
+- **Kalau NFT identitas berpindah tangan** saat utang > 0: draw langsung dibekukan (`ownerOf != tab.owner` → revert `OwnerChanged`). Pemilik lama tetap bertanggung jawab (stake-nya tetap terkunci). Pemilik baru bisa *take over* dengan setor stake ≥ requirement lalu memanggil `assumeTab` (Q-A2: alternatifnya NFT di-escrow ke manager).
+- Umur agent diukur sebagai `firstSeenAt` di Tabb (waktu pertama stake/openTab). Waktu mint di ERC-8004 belum tentu bisa dibaca on-chain (Q-A1).
+- `agentId` dan `owner` yang pernah default masuk **blacklist** dan tidak bisa membuka tab lagi.
 
-### 5.2 TabbPool (ERC-4626)
+### 5.2 Stake (anti-sybil dan first loss)
+
+- Token stake: **USDG** (Q-A4). Stake per `agentId`, disetor oleh `tab.owner`.
+- `minStake` wajib untuk membuka tab.
+- Stake dikunci selama `debt > 0`. Setelah lunas, ada `stakeCooldown` (mis. 7 hari) sebelum stake bisa ditarik. Cooldown mencegah pola "lunas → tarik stake → draw lagi tanpa stake".
+- Saat default: stake di-slash sebesar `min(stake, sisa utang)` dan dipakai melunasi pool. Sisanya (jika ada) kembali ke pemilik.
+- **Batas kerugian lender per agent** = `creditLimit − stake − saldo PolicyAccount yang belum terpakai` (lihat §5.4). Tier awal memakai leverage 1,0× sehingga utang agent baru selalu ≤ stake.
+
+### 5.3 Skor dan limit kredit
+
+Semua dihitung on-chain di `AgentCreditScore` dan bisa dilihat siapa saja.
+
+**Komponen:**
+
+| Komponen | Sumber | Catatan |
+|---|---|---|
+| Stake | `OwnerStakeVault` | Batas keras melalui leverage. |
+| Pendapatan | `RepaymentSplitter` (epoch 7 hari, jendela 90 hari) | Hanya pendapatan USDG yang melewati splitter yang dihitung. |
+| Umur | `firstSeenAt` di Tabb | Syarat naik tier. |
+| Riwayat bayar | `AgentCreditScore` | Jumlah **siklus lunas yang memenuhi syarat** dan catatan delinquent. |
+| Reputasi ERC-8004 | — | Tidak dipakai di MVP karena feedback mudah dipalsukan (sybil). Lihat Q-A10. |
+
+**Siklus lunas yang memenuhi syarat:** utang naik dari 0 lalu kembali ke 0, dengan durasi ≥ 7 hari, puncak utang ≥ 50 USDG, dan tidak pernah delinquent. Syarat ini mencegah pola "draw lalu langsung repay" untuk mendongkrak skor.
+
+**Tier:**
+
+| Tier | Syarat | Leverage stake |
+|---|---|---|
+| T0 | baru | 1,0× |
+| T1 | ≥ 3 siklus lunas, umur ≥ 30 hari, 0 delinquent dalam 90 hari | 1,5× |
+| T2 | ≥ 10 siklus lunas, umur ≥ 90 hari, 0 delinquent dalam 180 hari | 2,0× |
+
+**Rumus limit:**
 
 ```
-cash          = USDG.balanceOf(pool)                      (lihat catatan donasi, Q4)
-totalDebt     = totalScaledDebt × borrowIndex / RAY       (dibulatkan ke atas)
-reserves      = bagian bunga untuk treasury (reserveFactor)
-totalAssets() = cash + totalDebt − reserves
-utilization   = totalDebt / (cash + totalDebt − reserves)
+revenueLimit = revenue90d × revenueAdvanceBps / 10_000
+capacity     = max(baseLimit, revenueLimit)
+stakeLimit   = stake × leverage(tier)
+creditLimit  = min(capacity, stakeLimit, maxPerAgent, sisa cap per pemilik, sisa cap global)
 ```
 
-- **Accrual**: setiap fungsi state-changing memanggil `_accrue()`:
-  `borrowIndex ← borrowIndex × (1 + rate × Δt / YEAR)` (bunga linear per periode, compounding per interaksi — pola Aave/Compound).
-  `reserves += interestAccrued × reserveFactor`.
-- **Inflation attack**: override `_decimalsOffset()` → `6` (share 12 desimal untuk aset 6 desimal), ditambah **seed deposit** kecil ke `address(0xdead)` di script deploy. Pembulatan mengikuti OZ v5 (mint/redeem ke bawah untuk pengguna).
-- **Donasi**: karena `cash` memakai `balanceOf`, donasi langsung menaikkan harga share — tidak merugikan lender (OZ offset membuat serangan tidak menguntungkan). Alternatif: tracking `cash` internal (lihat Pertanyaan terbuka Q4).
-- **Likuiditas**: `maxWithdraw`/`maxRedeem` dibatasi `cash − reserves` (lender tidak bisa menarik USDG yang sedang dipinjam). Ini menjamin invariant "share tidak bisa ditarik melebihi nilai aset".
-- **Credit line**:
+Skor 0–1000 hanya untuk tampilan (normalisasi tier + revenue + umur). Keputusan on-chain selalu memakai `creditLimit`.
+
+### 5.4 Draw dan PolicyAccount
+
+- `draw(agentId, amount)` hanya oleh `tab.owner`. Syarat: status `Active`, `debtAfter ≤ creditLimit`, `debtAfter ≥ minDebt`, tidak di-pause, dan pool punya likuiditas.
+- USDG dikirim dari pool **ke PolicyAccount agent**, bukan ke pemilik.
+- `PolicyAccount`:
+  - `operator`: kunci yang dikendalikan agent (di-set pemilik; bisa sama dengan `agentWallet` ERC-8004).
+  - `pay(token, payee, amount)`: `payee` harus ada di `PayeeRegistry`, dan total pengeluaran 24 jam ≤ `dailySpendCap`.
+  - `execute(target, data)`: `target` dan `bytes4 selector` harus di-whitelist. **Token USDG tidak boleh menjadi `target`.** Semua transfer USDG wajib lewat `pay()` agar cek payee tidak bisa dilewati. `approve` hanya ke spender whitelist dengan jumlah persis.
+  - `repay()`: siapa saja bisa mengembalikan saldo PolicyAccount ke pool.
+  - `sweep()` (`onlyManager`): saat default atau closeTab, saldo dikembalikan untuk melunasi utang.
+- **Konsekuensi:** dana yang belum dibelanjakan tetap bisa ditarik kembali, jadi berfungsi sebagai jaminan parsial.
+- **Risiko kolusi payee:** pemilik bisa mendaftarkan alamatnya sendiri sebagai "penyedia". Karena itu whitelist dikurasi global oleh role `PAYEE_CURATOR` (bukan per-agent), dan cap harian membatasi kecepatan kebocoran (Q-A6).
+
+### 5.5 RepaymentSplitter
+
+- Satu splitter per agent, di-deploy saat `openTab`. Alamatnya dipublikasikan sebagai alamat pembayaran agent (mis. `payTo` di metadata ERC-8004 / x402, Q-A16).
+- `distribute()` (permissionless):
   ```
-  drawDebt(uint256 amount, address to) returns (uint256 scaledAdded)   // onlyCreditLine, cek cap
-  repayDebt(uint256 amount)            returns (uint256 scaledRemoved) // tarik USDG dari credit line
-  writeOff(uint256 amount)                                             // bad debt: kurangi scaled debt credit line; kerugian ditanggung lender (atau ILossAbsorber)
+  bal     = USDG.balanceOf(splitter)
+  revenue[epoch] += bal                         // dicatat untuk skor
+  if debt > 0:
+      toRepay = min(bal × splitBps / 10_000, debt)   // dalam status Delinquent: splitBps = 100%
+      manager.repayFromSplitter(agentId, toRepay)
+  payout  = bal − toRepay → payoutWallet
   ```
-  Setiap credit line punya `debtCap` (USDG). `TabManager` menyimpan scaled debt per tab dengan index yang **sama** dari pool → Σ scaled debt tab = scaled debt credit line `TabManager` (dicek di invariant).
-- **Tranche-ready**: `lossAbsorber` (Fase 2: kontrak junior tranche) dipanggil di `writeOff` sebelum kerugian dibebankan ke pool senior.
+- `splitBps` default 20%, minimal `minSplitBps` 10%. Pemilik boleh menaikkan, tapi tidak boleh menurunkan di bawah minimum selama utang > 0 (Q-A8).
+- Token selain USDG yang masuk ke splitter: `rescueToken(token)` meneruskan 100% ke payout dan tidak dihitung sebagai pendapatan (Q-A5).
+- **Keterbatasan mendasar:** protokol tidak bisa memaksa klien membayar ke splitter. Mitigasinya: limit hanya tumbuh dari pendapatan yang lewat splitter, ada pembayaran minimum per periode (§5.7), dan stake menjadi first loss.
+- **Pendapatan palsu (wash revenue):** pemilik bisa membayar agent-nya sendiri lewat splitter. Dampaknya dibatasi `stakeLimit`, karena pendapatan tinggi tetap tidak bisa menaikkan limit melewati `stake × leverage`. Opsi tambahan: fee protokol kecil pada setiap distribute (Q-A9).
 
-### 5.3 InterestRateModel (kink)
+### 5.6 Bunga
 
-```
-if U ≤ U_opt:  rate = base + slope1 × U / U_opt
-else:          rate = base + slope1 + slope2 × (U − U_opt) / (1 − U_opt)
-supplyRate     = rate × U × (1 − reserveFactor)
-```
+- `TabbPool` menyimpan index per credit line: `rate_line = IRM(U) + spreadBps_line`.
+- `AgentCreditManager` menyimpan `scaledDebt` per agent dengan index milik credit line-nya. Σ scaled debt agent = scaled debt credit line (invariant).
+- Spread agent default **+8% APR** (premi risiko kredit tanpa jaminan penuh, dibayar ke lender). `reserveFactor` dari bunga masuk ke reserve, yang juga menjadi lapisan asuransi di waterfall default.
+- Origination fee: 0 di MVP (Q-A11).
+- Pembayaran (repay manual, splitter, sweep, slash) melunasi **bunga dulu, lalu pokok**.
 
-Usulan awal: `base = 0%`, `slope1 = 6%`, `U_opt = 80%`, `slope2 = 60%`, `reserveFactor = 10%` (lihat §7 dan Q1 soal ekonomi self-repaying).
+### 5.7 Pembayaran minimum, delinquency, dan default
 
-### 5.4 Tab
-
-```solidity
-struct Tab {
-    address owner;
-    address adapter;          // jenis jaminan
-    uint128 scaledDebt;       // utang / borrowIndex
-    uint128 principal;        // pokok tersisa (untuk urutan "bunga dulu, lalu pokok")
-    uint128 yieldRepaid;      // total yield yang sudah dipakai membayar (statistik UI)
-    uint64  openedAt;
-    bool    open;
-}
-mapping(uint256 => Tab) tabs;
-mapping(address owner => mapping(address adapter => uint256 tabId)) tabOf; // 1 tab per (owner, adapter)
-mapping(address owner => uint256) ownerCredit;  // kelebihan yield, bisa di-claim (pull pattern)
-```
-
-- `debt(tabId) = scaledDebt × borrowIndex / RAY` (round **up**).
-- `accruedInterest = debt − principal` (≥ 0).
-- Pembayaran (repay manual maupun harvest): kurangi bunga dulu, lalu `principal`.
-- `collateralValue = adapter.valueInUSDG(tabId)` (round **down**, sudah termasuk haircut).
-- `effectiveLTV = marketOpen || !equityLinked ? maxLTV : closedMarketLTV` (0 jika borrow dibekukan saat pasar tutup).
-- **Borrow/withdraw diizinkan** jika `debtAfter ≤ collateralValueAfter × effectiveLTV` **dan** `debtAfter ≥ minDebt` atau `debtAfter == 0`.
-- **Health factor**: `HF = collateralValue × LT / debt` (WAD). `debt == 0 → HF = ∞`.
-- Karena `maxLTV < LT`, setiap posisi tepat setelah borrow/withdraw punya `HF ≥ LT / maxLTV > 1` (invariant).
-
-### 5.5 Harvest (self-repaying)
+Setiap tab punya periode pembayaran `paymentPeriod` (30 hari) yang dimulai dari draw pertama setelah utang 0.
 
 ```
-usdgOut   = adapter.harvest(tabId, harvester)      // 0 jika belum ada yield
-if usdgOut < minHarvest → revert (anti-dust)
-reward    = min(usdgOut × rewardBps / 10_000, maxReward)     → ke msg.sender
-toRepay   = min(usdgOut − reward, debt)
-excess    = usdgOut − reward − toRepay             → ownerCredit[owner]
+minPaymentDue(period) = bunga yang terakumulasi di periode itu
+                      + minPrincipalBps × pokok di awal periode     (mis. 10%)
 ```
 
-- Harvest **tidak pernah menambah utang**: accrual terjadi lalu utang hanya berkurang (invariant).
-- **ERC4626ShareAdapter**: tiap tab menyimpan `principalAssets` (high-water mark dalam USDG). `yield = max(0, convertToAssets(shares) − principalAssets)`; harvest me-redeem share senilai `yield` sehingga nilai tersisa = `principalAssets`. Jika harga share turun, tidak ada yield (dan high-water mark tidak turun). `addCollateral`/`withdraw` menyesuaikan `principalAssets` secara proporsional.
-- **YieldTokenAdapter**: adapter memegang YT seluruh tab, jadi claim dividen bersifat agregat. Pembagian per tab memakai akumulator:
-  ```
-  _checkpoint(): claimed = YT.claim();  accDividendPerToken += claimed × 1e18 / totalYTHeld
-  pending(tab) = balance(tab) × accDividendPerToken / 1e18 − rewardDebt(tab)
-  ```
-  `_checkpoint()` dipanggil sebelum setiap perubahan saldo (deposit/withdraw/seize/harvest) agar atribusi benar.
+Status:
 
-### 5.6 Likuidasi
-
-```
-require HF < 1
-maxRepay   = debt × closeFactor            (100% jika HF < fullLiquidationHF atau debt < dustDebt)
-repay      = min(requested, maxRepay)
-seizeValue = repay × (1 + bonus)
-seizeAmt   = adapter.amountForValue(seizeValue), dibatasi saldo jaminan tab
-jika jaminan habis dan masih ada utang → writeOff(sisa utang) ke pool (bad debt, event BadDebt)
+```mermaid
+stateDiagram-v2
+    [*] --> Active: openTab (stake ≥ minStake)
+    Active --> Active: draw / repay / distribute
+    Active --> Delinquent: markDelinquent — periode lewat + grace (7 hari), minPayment belum terpenuhi
+    Delinquent --> Active: tunggakan dibayar (cure)
+    Delinquent --> Defaulted: markDefault — delinquent ≥ defaultDelay (30 hari)
+    Active --> Closed: closeTab (utang 0)
+    Defaulted --> [*]: waterfall selesai, blacklist
+    Closed --> [*]
 ```
 
-- Likuidator membayar USDG, menerima jaminan **in-kind** (share vault / YT).
-- Harvest otomatis sebelum likuidasi: tidak di MVP (likuidator bisa memanggil harvest dulu secara terpisah). Lihat Q7.
+- **Delinquent:** draw dibekukan, `splitBps` efektif 100%, PolicyAccount dibekukan (operator tidak bisa `pay`), dan dicatat di riwayat skor.
+- **Defaulted** (`markDefault` permissionless setelah `defaultDelay`), **waterfall pemulihan**:
+  1. `sweep` saldo USDG PolicyAccount → repay.
+  2. `distribute` saldo splitter (100%) → repay.
+  3. Slash stake pemilik → repay.
+  4. Sisa utang → `pool.writeOff(sisa)`. Kerugian diserap `ILossAbsorber` (nanti), lalu reserve pool, lalu lender (harga share turun).
+  5. Blacklist `agentId` dan `owner`; status final.
+- Setelah default, splitter tetap ada. Kalau ada pendapatan yang masuk belakangan, `distribute()` mengirimnya ke pool sebagai *recovery* (memulihkan sebagian kerugian lender). Lihat Q-A14.
 
 ---
 
-## 6. Diagram alur
+## 6. Diagram alur Fase 1
 
 ### 6.1 Lender
 
@@ -293,243 +295,225 @@ sequenceDiagram
     actor L as Lender
     participant P as TabbPool
     L->>P: deposit(assets, receiver)
-    P->>P: _accrue()
+    P->>P: _accrue() semua credit line
     P->>L: mint shares (round down)
-    Note over P: Bunga dari borrower menaikkan totalAssets → harga share naik
+    Note over P: Bunga + spread agent → totalAssets naik → harga share naik
     L->>P: redeem(shares)
-    P->>P: _accrue(); cek shares ≤ maxRedeem (dibatasi cash)
+    P->>P: _accrue(); shares ≤ maxRedeem (dibatasi cash)
     P->>L: transfer USDG
 ```
 
-### 6.2 Buka tab dan borrow
+### 6.2 Onboarding agent dan draw
 
 ```mermaid
 sequenceDiagram
-    actor B as Borrower
-    participant TM as TabManager
-    participant RC as RiskConfig
-    participant A as Adapter
-    participant OR as OracleRouter
+    actor O as Pemilik agent
+    participant REG as ERC8004RegistryAdapter
+    participant SV as OwnerStakeVault
+    participant M as AgentCreditManager
+    participant SC as AgentCreditScore
     participant P as TabbPool
-    B->>TM: openTab(adapter)
-    TM->>RC: status(adapter) == ACTIVE?
-    B->>TM: addCollateral(tabId, amount)
-    TM->>RC: cek supply cap
-    TM->>A: deposit(tabId, B, amount)  (safeTransferFrom)
-    B->>TM: borrow(tabId, amount)
-    TM->>P: _accrue (via pool.accrue())
-    TM->>RC: effectiveLTV (market open/closed), borrow cap
-    TM->>A: valueInUSDG(tabId)
-    A->>OR: harga + sequencer + staleness
-    TM->>TM: update scaledDebt, principal (effects)
-    TM->>P: drawDebt(amount, B)  (interaction)
-    P->>B: transfer USDG
+    participant PA as PolicyAccount
+    O->>SV: stake(agentId, amount)
+    O->>M: openTab(agentId, operator, payoutWallet)
+    M->>REG: exists(agentId), ownerOf(agentId) == O
+    M->>M: cek blacklist, stake ≥ minStake
+    M->>M: deploy clone PolicyAccount + RepaymentSplitter
+    O->>M: draw(agentId, amount)
+    M->>P: accrue
+    M->>SC: creditLimit(agentId)
+    M->>M: update scaledDebt, principal, periode (effects)
+    M->>SV: lock(agentId)
+    M->>P: drawDebt(amount, PA) (interaction)
+    P->>PA: transfer USDG
 ```
 
-### 6.3 Harvest
+### 6.3 Belanja dan pelunasan dari pendapatan
+
+```mermaid
+sequenceDiagram
+    actor A as Operator agent
+    participant PA as PolicyAccount
+    participant PR as PayeeRegistry
+    actor C as Klien
+    participant RS as RepaymentSplitter
+    participant M as AgentCreditManager
+    participant P as TabbPool
+    A->>PA: pay(USDG, provider, 30)
+    PA->>PR: isPayee(provider)? cap harian?
+    PA->>PA: transfer ke provider
+    C->>RS: transfer USDG (bayar jasa agent)
+    Note over RS: siapa saja (keeper/agent) bisa memanggil
+    RS->>RS: distribute(): catat revenue epoch
+    RS->>M: repayFromSplitter(agentId, X%)
+    M->>P: repayDebt
+    RS->>RS: sisa → payoutWallet
+```
+
+### 6.4 Default
 
 ```mermaid
 sequenceDiagram
     actor K as Keeper
-    participant H as YieldHarvester
-    participant TM as TabManager
-    participant A as Adapter
+    participant M as AgentCreditManager
+    participant PA as PolicyAccount
+    participant RS as RepaymentSplitter
+    participant SV as OwnerStakeVault
     participant P as TabbPool
-    K->>H: harvest(tabId)
-    H->>TM: harvestFor(tabId, K)
-    TM->>A: harvest(tabId, TM)
-    A-->>TM: usdgOut
-    TM->>K: reward
-    TM->>TM: kurangi bunga → pokok; excess → ownerCredit
-    TM->>P: repayDebt(toRepay)
-```
-
-### 6.4 Likuidasi
-
-```mermaid
-sequenceDiagram
-    actor X as Liquidator bot
-    participant LQ as Liquidator
-    participant TM as TabManager
-    participant A as Adapter
-    participant P as TabbPool
-    X->>LQ: liquidate(tabId, repayAmount)
-    LQ->>TM: healthFactor(tabId) < 1 ?
-    LQ->>LQ: hitung repay (close factor), seizeAmt (bonus)
-    LQ->>TM: liquidateFor(tabId, X, repay, seizeAmt)
-    TM->>P: repayDebt(repay) (USDG ditarik dari X)
-    TM->>A: seize(tabId, X, seizeAmt)
-    opt jaminan habis, utang tersisa
-        TM->>P: writeOff(remaining)
-    end
-```
-
-### 6.5 Siklus end-to-end (self-repaying)
-
-```mermaid
-stateDiagram-v2
-    [*] --> Open: openTab
-    Open --> Collateralized: addCollateral
-    Collateralized --> InDebt: borrow
-    InDebt --> InDebt: harvest (utang turun)
-    InDebt --> InDebt: repay / addCollateral
-    InDebt --> Liquidatable: HF < 1
-    Liquidatable --> InDebt: likuidasi parsial / addCollateral / repay
-    InDebt --> Collateralized: utang = 0 (lunas sendiri)
-    Collateralized --> Open: withdrawCollateral (semua)
-    Open --> [*]: closeTab
+    K->>M: markDefault(agentId)
+    M->>M: cek Delinquent ≥ defaultDelay
+    M->>PA: sweep() → repay
+    M->>RS: distributeAll() → repay
+    M->>SV: slash(agentId, min(stake, sisa)) → repay
+    M->>P: writeOff(sisa)
+    M->>M: blacklist agentId + owner, status Defaulted
 ```
 
 ---
 
-## 7. Parameter risiko awal
+## 7. Parameter risiko awal Fase 1
 
-Semua parameter bisa diubah owner (→ timelock). Nilai di bawah adalah usulan konservatif.
-
-### 7.1 Per jenis jaminan
-
-| Parameter | Share vault USDG (ERC-4626) | YT dividen saham (Clipt) |
-|---|---|---|
-| Max LTV | **80%** | **40%** |
-| Liquidation threshold | **85%** | **50%** |
-| Liquidation bonus | **5%** | **10%** |
-| Supply cap (nilai USDG) | 1.000.000 *(usulan)* | 250.000 *(usulan)* |
-| Borrow cap (USDG) | 500.000 *(usulan)* | 50.000 *(usulan)* |
-| Equity-linked (market closed berlaku) | Tidak | **Ya** |
-| LTV saat market closed | — | **25%** atau `0` = borrow dibekukan (Q3) |
-| Haircut jatuh tempo | — | `base 10% + 10%/tahun sisa tenor`, maks 50% |
-| Sisa tenor minimum untuk borrow | — | 30 hari |
-| Batas kenaikan harga share per harvest | 2%/hari *(sanity check, Q5)* | — |
-
-Catatan: syarat `maxLTV < LT` dan `LT × (1 + bonus) < 100%` divalidasi di setter `RiskConfig` (85% × 1,05 = 89,25%; 50% × 1,10 = 55%).
-
-### 7.2 Global
+Semua bisa diubah owner (→ timelock). Usulan konservatif:
 
 | Parameter | Usulan |
 |---|---|
-| Close factor | 50% |
-| Full liquidation jika HF < | 0,95 |
-| Dust debt (likuidasi penuh di bawah ini) | 100 USDG |
-| Min debt per tab | 10 USDG |
-| Reward keeper harvest | 0,5% dari yield, maks 25 USDG |
-| Min harvest | 1 USDG |
+| `minStake` | 100 USDG |
+| `baseLimit` | 100 USDG |
+| Leverage T0 / T1 / T2 | 1,0× / 1,5× / 2,0× |
+| `revenueAdvanceBps` | 25% dari pendapatan 90 hari |
+| `maxPerAgent` | 1.000 USDG |
+| `maxPerOwner` (semua agent milik satu alamat) | 3.000 USDG |
+| Cap global credit line agent (di pool) | 50.000 USDG |
+| `minDebt` | 10 USDG |
+| `splitBps` default / minimum | 20% / 10% (100% saat delinquent) |
+| Spread agent | +8% APR di atas IRM |
+| Origination fee | 0 |
+| `paymentPeriod` | 30 hari |
+| `minPrincipalBps` per periode | 10% |
+| Grace sebelum delinquent | 7 hari |
+| `defaultDelay` (delinquent → default) | 30 hari |
+| `stakeCooldown` setelah lunas | 7 hari |
+| `dailySpendCap` PolicyAccount | 25% dari creditLimit per 24 jam |
+| Epoch pendapatan / jendela | 7 hari / 90 hari |
+| Syarat siklus lunas | durasi ≥ 7 hari, puncak ≥ 50 USDG, tanpa delinquent |
 | Reserve factor | 10% |
 | IRM | base 0%, slope1 6%, kink 80%, slope2 60% |
-| Sequencer grace period | 3600 detik |
-| Heartbeat oracle (market open / closed) | per feed; usulan 1 jam / 80 jam (akhir pekan + libur) |
 | `_decimalsOffset` pool | 6 |
-| Seed deposit pool | 1.000 USDG ke `0xdead` (testnet: dari deployer) |
+| Seed deposit pool | 1.000 USDG ke `0xdead` |
 
-### 7.3 Catatan ekonomi self-repaying
+**Batas validasi setter:** leverage ≤ 5×, `minSplitBps` ≥ 5%, spread ≤ 50%, `defaultDelay` ≥ 7 hari, dan setiap cap ≤ cap global.
 
-Agar tab benar-benar melunasi diri sendiri, yield jaminan harus melebihi bunga:
-`yieldAPY × collateral > borrowAPR × debt` ⇔ `LTV < yieldAPY / borrowAPR`.
-Dengan yield `y` (APY jaminan), bunga `r` dan LTV awal `L` (yield dipanen terus, nilai pokok jaminan tetap), waktu lunas ≈ `t = ln(1 / (1 − r·L / y)) / r`.
-
-| Vault APY `y` | Borrow APR `r` | LTV awal | Estimasi lunas |
-|---|---|---|---|
-| 5% | 6% | 20% | ≈ 4,6 tahun |
-| 5% | 6% | 50% | ≈ 15,3 tahun |
-| 5% | 6% | ≥ 83% | tidak pernah lunas (bunga > yield) |
-
-Ini menjadi informasi penting di UI ("estimasi tanggal lunas", plus peringatan jika `r·L ≥ y`) dan terkait pertanyaan terbuka Q1.
+**Eksposur maksimum lender** (parameter awal): per agent T0 = 0 (utang ≤ stake); per agent T2 ≤ 1.000 − 500 = 500 USDG; global ≤ cap 50.000 dikurangi total stake.
 
 ---
 
-## 8. Oracle, market closed, dan sequencer
+## 8. TabbPool dan InterestRateModel (bersama)
 
-### 8.1 OracleRouter
+### 8.1 Unit dan desimal
 
-```solidity
-struct FeedConfig {
-    AggregatorV3Interface feed;
-    uint32 heartbeatOpen;     // detik
-    uint32 heartbeatClosed;   // detik (dipakai saat market closed, hanya untuk likuidasi)
-    uint8  decimals;
-}
-function getPrice(address asset, Purpose p) external view returns (uint256 priceWad);
-// Purpose: BORROW (ketat) | LIQUIDATION (toleran saat market closed) | VIEW
-```
+- USDG diasumsikan **6 desimal**. Nilai `decimals()` dibaca dan di-assert saat deploy, tidak di-hardcode di logika.
+- Nilai uang dalam unit USDG native. Persentase dalam bps (10_000 = 100%). Index bunga dalam RAY (1e27). Harga (Fase 2) dalam WAD.
 
-Validasi tiap pembacaan:
-
-1. Sequencer uptime feed: `answer == 0` (up) dan `block.timestamp − startedAt > gracePeriod`. Jika gagal → revert untuk BORROW; untuk LIQUIDATION selama grace period juga revert (memberi waktu pengguna menambah jaminan setelah sequencer pulih — pola Aave).
-2. `answer > 0`.
-3. `updatedAt != 0`, `answeredInRound ≥ roundId`.
-4. `block.timestamp − updatedAt ≤ heartbeat` (open/closed tergantung status pasar dan purpose).
-5. Opsional: batas min/max harga per feed (circuit breaker).
-
-### 8.2 Valuasi
-
-- **Share vault USDG**: `value = vault.convertToAssets(shares)` dalam USDG. Tidak butuh oracle harga karena utang juga USDG (risiko depeg USDG saling meniadakan). Perlindungan manipulasi: whitelist vault, sanity bound kenaikan harga share (Q5).
-- **YT**: `value = balance × priceYT × (1 − haircut(ttm)) + pendingDividend`.
-  - `priceYT` dari feed (sumber harga YT belum jelas → Q2).
-  - `haircut(ttm) = min(maxHaircut, baseHaircut + annualHaircut × ttm / 365d)`. Tenor lebih panjang = ketidakpastian dividen lebih besar = diskon lebih besar.
-  - `ttm < minTTM` → borrow baru ditolak (value tetap dihitung untuk HF/likuidasi).
-  - Konversi USD → USDG: jika feed USDG/USD tersedia, `valueUSDG = valueUSD / max(1, priceUSDG)` (konservatif); jika tidak, asumsikan 1:1 (Q6).
-
-### 8.3 Mode market closed
+### 8.2 TabbPool
 
 ```
-isMarketOpen(adapter):
-    1. Jika RiskConfig.marketStatusFeed[adapter] di-set → baca feed (dengan cek staleness)
-    2. Else → RiskConfig.manualMarketStatus[adapter] (di-set owner atau keeper ber-role MARKET_KEEPER)
+cash            = USDG.balanceOf(pool)                     (Q-U2)
+debt(line)      = scaledDebt[line] × index[line] / RAY     (round up)
+totalDebt       = Σ debt(line)
+totalAssets()   = cash + totalDebt − reserves
+U               = totalDebt / (cash + totalDebt − reserves)
+rate(line)      = IRM.borrowRate(U) + spreadBps[line]
 ```
 
-Efek saat **closed** untuk jaminan equity-linked:
+- `_accrue()` memperbarui index semua credit line (jumlah credit line kecil dan dibatasi, maks 8). `reserves += interest × reserveFactor`.
+- **Inflation attack:** `_decimalsOffset() = 6` + seed deposit. Pembulatan mengikuti OZ v5.
+- **Likuiditas:** `maxWithdraw`/`maxRedeem` dibatasi `cash − reserves`.
+- **API credit line:**
+  ```solidity
+  function drawDebt(uint256 amount, address to) external returns (uint256 scaledAdded);   // onlyCreditLine, cek cap
+  function repayDebt(uint256 amount) external returns (uint256 scaledRemoved);           // tarik USDG dari credit line
+  function writeOff(uint256 amount) external;                                            // bad debt
+  function debtOf(address line) external view returns (uint256);
+  function indexOf(address line) external view returns (uint256);
+  ```
+- `writeOff`: panggil `lossAbsorber` (jika ada) → pakai `reserves` → sisanya mengurangi `totalAssets` (lender).
+- Owner: `setCreditLine(line, cap, spreadBps)`, `setLossAbsorber`, `setInterestRateModel`, `setReserveFactor`, `withdrawReserves(to, amount)`.
 
-| Aksi | Efek |
+### 8.3 InterestRateModel (kink)
+
+```
+if U ≤ U_opt:  rate = base + slope1 × U / U_opt
+else:          rate = base + slope1 + slope2 × (U − U_opt) / (1 − U_opt)
+supplyRate    ≈ Σ_line (rate_line × debt_line) / totalAssets × (1 − reserveFactor)
+```
+
+---
+
+## 9. Fase 2 — Kredit berbasis yield (desain, dibangun nanti)
+
+Desain dari v0.1, dipertahankan agar nanti tinggal dibangun. Di Fase 1 hanya interface dan stub (§4.3).
+
+### 9.1 Contract
+
+| Contract | Tanggung jawab |
 |---|---|
-| borrow | LTV = `closedMarketLTV`; jika `0` → revert `BorrowFrozenMarketClosed` |
-| withdrawCollateral | cek memakai `closedMarketLTV` (mencegah tarik jaminan di harga stale) |
-| repay / addCollateral / harvest | normal |
-| likuidasi | **tetap berjalan**, memakai harga dengan `heartbeatClosed` |
+| `TabManager` | Credit line kedua. openTab, addCollateral, borrow, repay, withdrawCollateral, closeTab. Satu tab per (pengguna, jenis jaminan). Utang scaled + principal; kelebihan yield → `ownerCredit` (pull). |
+| `RiskConfig` | Per jaminan: maxLTV, LT, bonus, supply/borrow cap, status ACTIVE/FROZEN/DISABLED, parameter market closed, status pasar manual. Global: close factor, dust, reward keeper. |
+| `OracleRouter` | Chainlink: cek staleness (heartbeat open/closed), harga ≤ 0, round, sequencer uptime + grace. Harga YT ber-haircut jatuh tempo. `isMarketOpen`. |
+| `ICollateralAdapter` | `asset`, `balanceOf(tabId)`, `valueInUSDG(tabId)`, `valueOfAmount`, `amountForValue`, `pendingYield(tabId)`, `isEquityLinked`, `deposit/withdraw/seize/harvest` (onlyTabManager). |
+| `ERC4626ShareAdapter` | Custody share vault USDG per tab. Yield = kenaikan di atas high-water mark `principalAssets`; harvest = redeem kelebihannya. |
+| `YieldTokenAdapter` | Custody YT Clipt per tab. Dividen dibagi dengan akumulator `accDividendPerToken` + checkpoint sebelum setiap perubahan saldo. |
+| `YieldHarvester` | `harvest(tabId)` permissionless. Reward keeper `min(yield × rewardBps, maxReward)`, lalu bayar bunga → pokok → kredit pemilik. |
+| `Liquidator` | Likuidasi parsial jika HF < 1. Close factor 50% (100% jika HF < 0,95 atau dust). Seize in-kind + bonus. Bad debt → `writeOff`. |
 
-Rasional: aksi yang menambah risiko dibatasi ketika harga tidak bisa dipercaya; aksi yang menurunkan risiko selalu boleh. Skenario stres milestone 4: harga YT turun 30% saat market closed → feed update → HF < 1 → likuidasi parsial berhasil, borrow baru tetap ditolak.
+### 9.2 Rumus inti
+
+```
+debt          = scaledDebt × index / RAY                (round up)
+value         = adapter.valueInUSDG(tabId)              (round down, sudah ber-haircut)
+effectiveLTV  = (marketOpen || !equityLinked) ? maxLTV : closedMarketLTV
+borrow/withdraw OK jika debtAfter ≤ valueAfter × effectiveLTV
+HF            = value × LT / debt
+YT value      = bal × priceYT × (1 − haircut(ttm)) + pendingDividend
+haircut(ttm)  = min(maxHaircut, baseHaircut + annualHaircut × ttm / 365d)
+```
+
+### 9.3 Parameter awal
+
+| Parameter | Share vault USDG | YT dividen saham (Clipt) |
+|---|---|---|
+| Max LTV / LT / bonus | 80% / 85% / 5% | 40% / 50% / 10% |
+| Supply cap / borrow cap | 1.000.000 / 500.000 | 250.000 / 50.000 |
+| Market closed | tidak berlaku | LTV 25% atau borrow dibekukan (Q-Y3) |
+| Haircut jatuh tempo | — | 10% + 10%/tahun, maks 50%; borrow ditolak jika ttm < 30 hari |
+
+Global: close factor 50%, full liquidation jika HF < 0,95, dust 100 USDG, reward keeper 0,5% (maks 25 USDG), min harvest 1 USDG, grace sequencer 3600 detik, heartbeat 1 jam (open) / 80 jam (closed).
+
+### 9.4 Market closed
+
+Status dibaca dari feed oracle jika ada, kalau tidak dari flag manual (role `MARKET_KEEPER`). Saat closed, untuk jaminan equity-linked: borrow dan withdrawCollateral memakai `closedMarketLTV` (0 = beku). Repay, addCollateral, dan harvest tetap normal. **Likuidasi tetap berjalan** dengan heartbeat closed.
+
+### 9.5 Ekonomi self-repaying
+
+Waktu lunas ≈ `ln(1 / (1 − r·L / y)) / r`. Contoh: yield 5%, bunga 6% → LTV 20% ≈ 4,6 tahun; LTV 50% ≈ 15,3 tahun; LTV ≥ 83% tidak pernah lunas.
 
 ---
 
-## 9. Admin, pause, dan governance
+## 10. Admin, pause, dan governance
 
-- **Owner**: `Ownable2Step`. Di MVP EOA/multisig deployer; disiapkan untuk ditransfer ke `TimelockController` (OZ) — tidak ada asumsi `owner == EOA` di kode.
-- **Guardian**: alamat terpisah, hanya bisa **pause**. Unpause hanya owner.
-- **Granularitas pause**:
+- **Owner:** `Ownable2Step`, disiapkan untuk ditransfer ke `TimelockController`.
+- **Guardian:** hanya pause. Unpause hanya owner.
+- **Role tambahan:** `PAYEE_CURATOR` (Fase 1), `MARKET_KEEPER` (Fase 2). Keduanya di-set owner.
 
 | Contract | Bisa dipause | Tidak pernah dipause |
 |---|---|---|
-| TabbPool | deposit, withdraw/redeem (Q8), drawDebt | repayDebt |
-| TabManager | openTab, borrow, withdrawCollateral | repay, addCollateral, claimCredit |
-| YieldHarvester | harvest (hanya owner, mis. bug adapter) | — |
-| Liquidator | liquidate (hanya owner, Q8) | — |
-| RiskConfig | per-aset `FROZEN` (tidak ada aksi baru selain repay/likuidasi) / `DISABLED` | — |
+| TabbPool | deposit, withdraw/redeem (Q-U3), drawDebt | repayDebt |
+| AgentCreditManager | openTab, draw | repay, repayFromSplitter, markDelinquent, markDefault |
+| PolicyAccount (global flag di PayeeRegistry) | pay, execute | repay ke pool, sweep |
+| RepaymentSplitter | — | distribute |
+| OwnerStakeVault | withdraw stake | stake, slash |
 
-- Setter parameter memvalidasi batas (mis. LTV ≤ 95%, bonus ≤ 20%, reserveFactor ≤ 50%) dan emit event.
-- Tidak ada fungsi admin yang bisa memindahkan dana pengguna (kecuali `withdrawReserves` ke treasury, dibatasi `reserves`).
-
----
-
-## 10. Fase 2: kredit AI agent (interface + stub)
-
-```mermaid
-flowchart LR
-    AG[AI Agent] -->|terdaftar| REG[ERC-8004 Identity Registry]
-    OWN[Pemilik agent] -->|stake| SV[OwnerStakeVault]
-    ACM[AgentCreditManager] --> REG
-    ACM --> SC[IAgentCreditScore]
-    ACM -->|credit line| POOL[TabbPool]
-    ACM -->|dana pinjaman| PA[IPolicyAccount agent]
-    PA -->|hanya target whitelist| T[(Contract whitelist)]
-    C[Klien / pembayar] -->|bayar jasa agent| RS[RepaymentSplitter]
-    RS -->|X%| ACM
-    RS -->|100 − X%| PA
-```
-
-- **IAgentRegistry**: `ownerOf(agentId)`, `agentWallet(agentId)`, `registeredAt(agentId)`, `exists(agentId)`. Diimplementasi sebagai adapter ke ERC-8004 (standar masih draft → interface sendiri, adapter tipis).
-- **IAgentCreditScore**: input umur agent, volume pendapatan (diukur di `RepaymentSplitter`), riwayat bayar, stake pemilik → `scoreOf`, `creditLimitOf`.
-- **RepaymentSplitter**: satu splitter per agent; semua pendapatan masuk ke sini; `distribute(token)` memotong `splitBps` untuk membayar utang, sisanya ke wallet agent. Splitter tidak bisa diganti agent selama ada utang.
-- **IPolicyAccount**: `execute(target, data)` hanya jika `target` di-whitelist; dana pinjaman tidak bisa ditarik keluar langsung.
-- **Anti-sybil**: stake wajib pemilik (slashable saat default), limit awal kecil (mis. 100 USDG), limit naik bertahap sesuai riwayat.
-- **Modularitas terhadap Fase 1**: `AgentCreditManager` hanya perlu didaftarkan sebagai credit line baru di `TabbPool` (`setCreditLine(acm, cap)`); `TabManager` tidak berubah. Tranche junior dipasang lewat `setLossAbsorber`.
+- Tidak ada fungsi admin yang bisa memindahkan dana pengguna, kecuali `withdrawReserves` (dibatasi `reserves`) dan `slash` (hanya lewat `markDefault` yang syaratnya bisa dicek siapa saja).
 
 ---
 
@@ -537,19 +521,20 @@ flowchart LR
 
 | Risiko | Mitigasi |
 |---|---|
-| Reentrancy | `ReentrancyGuard` di semua entrypoint eksternal; checks-effects-interactions; adapter dipanggil setelah state utang diperbarui. |
-| Token aneh (fee-on-transfer, return false, rebasing) | `SafeERC20`; whitelist aset; adapter mengukur saldo sebelum/sesudah transfer dan revert jika tidak cocok. |
+| Reentrancy | `ReentrancyGuard`, checks-effects-interactions; panggilan ke clone/pool setelah state diperbarui. |
+| Token aneh | `SafeERC20`; hanya USDG yang dihitung; cek saldo sebelum/sesudah transfer. |
 | Inflation attack ERC-4626 | `_decimalsOffset = 6` + seed deposit. |
-| Manipulasi harga share vault (donasi) | Whitelist vault, sanity bound kenaikan harga, high-water mark (Q5). |
-| Oracle stale / ≤ 0 / sequencer down | §8.1. |
-| Gap harga di luar jam bursa | Mode market closed (§8.3), LTV YT rendah, bonus besar. |
-| Pembulatan | Utang round up, nilai jaminan round down, share mint round down, reward keeper round down. |
-| Griefing harvest kecil | `minHarvest`; reward persentase sehingga tidak ada insentif memecah harvest. |
-| Bad debt | `writeOff` + event; Fase 2 junior tranche menyerap kerugian dulu. |
-| Likuidator tidak bisa menjual YT | Bonus 10%, borrow cap kecil, LTV rendah (Q9). |
+| Sybil (banyak agent, banyak pemilik) | Stake wajib per agent, leverage T0 1,0×, cap per pemilik dan global, blacklist. Sybil dengan banyak alamat pemilik tetap dibatasi stake per agent. |
+| Wash revenue | Limit dibatasi `stake × leverage`; siklus lunas punya syarat durasi/jumlah; opsi fee distribute (Q-A9). |
+| Pendapatan tidak lewat splitter | Pembayaran minimum per periode → delinquent → default + slash. |
+| Kebocoran dana PolicyAccount | Payee whitelist global, cap harian, larangan `execute` ke token USDG, approve persis. |
+| Kolusi payee | Kurasi oleh `PAYEE_CURATOR`, cap harian, eksposur dibatasi stake. |
+| NFT identitas dipindah | Draw beku jika `ownerOf != tab.owner`; stake pemilik lama tetap terkunci. |
+| Kunci operator agent bocor | Penyerang hanya bisa membayar ke payee whitelist (dibatasi cap harian). Pemilik bisa `setOperator` untuk rotasi. |
+| Pembulatan | Utang round up, limit/nilai round down, share round down. |
+| Griefing `markDelinquent`/`markDefault` | Syarat waktu dihitung deterministik on-chain dan tidak bisa dipicu lebih awal. |
 | Admin key | Ownable2Step → timelock; guardian hanya pause; setter dibatasi. |
-| Adapter berbahaya | Hanya owner yang mendaftarkan adapter di RiskConfig; adapter immutable. |
-| Atribusi dividen YT salah | Checkpoint sebelum setiap perubahan saldo; invariant Σ pending ≤ saldo claimable. |
+| Ketergantungan ERC-8004 (standar masih bisa berubah) | Diisolasi di `ERC8004RegistryAdapter`; adapter immutable, diganti via setter owner hanya untuk tab baru. |
 
 Detail lengkap di `docs/SECURITY.md` (milestone 7).
 
@@ -557,25 +542,28 @@ Detail lengkap di `docs/SECURITY.md` (milestone 7).
 
 ## 12. Strategi testing
 
-**Mock**: `MockUSDG` (6 dec, mintable), `MockAggregator` (set answer/updatedAt/round), `MockSequencerFeed`, `MockERC4626Vault` (bisa "inject yield" dan menurunkan harga), `MockYieldToken` (dividen claimable, maturity), `MockFeeOnTransferToken` (negatif test).
+**Mock:** `MockUSDG` (6 dec), `MockERC8004IdentityRegistry` (ERC-721 dengan transfer), `MockPayee`, `MockFeeOnTransferToken`. Untuk Fase 2 nanti: `MockAggregator`, `MockSequencerFeed`, `MockERC4626Vault`, `MockYieldToken`.
 
-**Unit test** per contract: semua jalur sukses + setiap revert (custom error).
+**Unit test** per contract: semua jalur sukses dan setiap custom error.
 
-**Fuzz test**: borrow/repay jumlah acak, harvest dengan yield acak, likuidasi dengan penurunan harga acak, deposit/withdraw lender acak.
+**Fuzz test:** draw/repay jumlah acak; distribute dengan pendapatan dan `splitBps` acak; perhitungan limit (stake, revenue, tier acak); transisi waktu delinquency/default; deposit/withdraw lender.
 
-**Invariant test** (handler-based, Foundry `invariant_`):
+**Invariant test** (handler-based):
 
-1. `pool.totalDebt() ≤ pool.totalAssets()` (total utang ≤ total aset pool).
-2. Setelah setiap `borrow`/`withdrawCollateral` di handler: `HF(tab) ≥ 1` (ghost variable).
-3. `pool.previewRedeem(totalSupply) ≤ totalAssets` dan `maxWithdraw(user) ≤ cash`; tidak ada lender yang bisa menarik lebih dari `convertToAssets(shares)`.
-4. Setiap `harvest`: `debtAfter ≤ debtBefore` (setelah accrual).
-5. Tambahan: `Σ tab.scaledDebt == pool.scaledDebtOf(TabManager)`; `Σ adapter.balanceOf(tab) == token.balanceOf(adapter)`.
+1. `pool.totalDebt() ≤ pool.totalAssets()`.
+2. Tepat setelah `draw`: `debt(agent) ≤ creditLimit(agent)`, dan Σ utang agent milik satu pemilik ≤ `maxPerOwner`.
+3. Lender tidak bisa menarik melebihi `convertToAssets(shares)`, dan `maxWithdraw ≤ cash − reserves`.
+4. `distribute()` dan `repay` tidak pernah menambah utang.
+5. `Σ agent.scaledDebt == pool.scaledDebt(AgentCreditManager)`.
+6. Dana PolicyAccount hanya keluar ke payee whitelist, ke pool (repay/sweep), atau tidak sama sekali (handler mencoba `execute` sembarang).
+7. Stake tidak bisa ditarik selama `debt > 0` atau dalam cooldown.
+8. Setelah `markDefault`: utang agent = 0, dan `writeOff == utang − (sweep + splitter + slash)`.
 
-**Skenario**:
-- E2E: lender deposit → open tab → borrow → N kali harvest (vault yield disuntik) → utang 0 → withdraw semua jaminan → closeTab.
-- Stres: YT tab di LTV 40%, market closed, harga turun 30% → borrow ditolak, HF < 1, likuidasi parsial (close factor) berhasil, bonus benar, sisa posisi sehat / bad debt tercatat jika relevan.
+**Skenario:**
+- **E2E:** lender deposit → pemilik stake → openTab → draw → agent membayar payee → klien membayar splitter → beberapa kali distribute → utang lunas → siklus memenuhi syarat → tier naik → limit naik → tarik stake setelah cooldown.
+- **Stres:** (a) agent berhenti bayar → delinquent → default → waterfall benar, dan turunnya harga share lender = kerugian bersih persis. (b) 10 agent milik satu pemilik default bersamaan → kerugian ≤ cap per pemilik − stake. (c) NFT identitas dipindah saat utang > 0 → draw ditolak, default tetap mengenai stake pemilik lama. (d) Kunci operator dicuri → kebocoran ≤ cap harian ke payee whitelist saja.
 
-**Coverage**: `forge coverage` dengan target ≥ 90% untuk `TabManager`, `YieldHarvester`, `Liquidator` (dilaporkan per milestone).
+**Coverage:** target ≥ 90% untuk `AgentCreditManager`, `RepaymentSplitter`, `PolicyAccount`, dan `AgentCreditScore` (Fase 2 nanti: `TabManager`, `YieldHarvester`, `Liquidator`).
 
 ---
 
@@ -583,34 +571,31 @@ Detail lengkap di `docs/SECURITY.md` (milestone 7).
 
 ```
 tabb/
-├── contracts/                  # Foundry
-│   ├── foundry.toml
+├── contracts/                     # Foundry, Solidity ^0.8.24, OZ v5
 │   ├── src/
-│   │   ├── core/      TabbPool.sol, TabManager.sol, InterestRateModel.sol, RiskConfig.sol
-│   │   ├── oracle/    OracleRouter.sol
-│   │   ├── adapters/  ERC4626ShareAdapter.sol, YieldTokenAdapter.sol
-│   │   ├── periphery/ YieldHarvester.sol, Liquidator.sol
-│   │   ├── access/    TabbAccessControl.sol
-│   │   ├── interfaces/ ICollateralAdapter.sol, ICreditLine.sol, IInterestRateModel.sol, IOracleRouter.sol, IClipYieldToken.sol, ...
-│   │   ├── libraries/ TabbMath.sol, Errors.sol
-│   │   └── phase2/    IAgentRegistry.sol, IAgentCreditScore.sol, IPolicyAccount.sol, RepaymentSplitter.sol, AgentCreditManager.sol, OwnerStakeVault.sol
-│   ├── test/
-│   │   ├── mocks/ unit/ fuzz/ invariant/ scenario/
+│   │   ├── pool/        TabbPool.sol, InterestRateModel.sol
+│   │   ├── agent/       AgentCreditManager.sol, AgentCreditScore.sol, AgentRiskConfig.sol,
+│   │   │                OwnerStakeVault.sol, PolicyAccount.sol, PayeeRegistry.sol,
+│   │   │                RepaymentSplitter.sol, ERC8004RegistryAdapter.sol
+│   │   ├── yield/       TabManager.sol (stub Fase 2)
+│   │   ├── access/      TabbAccessControl.sol
+│   │   ├── interfaces/  ICreditLine, IAgentRegistry, IAgentCreditScore, IPolicyAccount,
+│   │   │                IRepaymentSplitter, ICollateralAdapter, IOracleRouter, ...
+│   │   └── libraries/   TabbMath.sol, Errors.sol
+│   ├── test/  mocks/ unit/ fuzz/ invariant/ scenario/
 │   └── script/
-│       ├── Config.s.sol        # alamat per chain (TODO placeholder)
-│       ├── DeployLocal.s.sol   # anvil: deploy mock + protokol + seed
-│       └── DeployTestnet.s.sol # testnet saja; revert jika chainid == 4663 mainnet
-├── web/                        # Next.js App Router + wagmi v2 + viem + Tailwind
-├── config/
-│   └── addresses.ts            # alamat per chain (TODO placeholder), dipakai web/
+│       ├── Config.s.sol           # alamat per chain (placeholder TODO)
+│       ├── DeployLocal.s.sol      # anvil: mock + protokol + data contoh
+│       └── DeployTestnet.s.sol    # revert jika chainid == 4663
+├── web/                           # Next.js App Router, TS, wagmi v2 + viem, Tailwind
+├── config/addresses.ts            # placeholder TODO
 ├── docs/  DESIGN.md, SECURITY.md
 ├── .env.example
-└── .gitignore                  # termasuk .env
+└── .gitignore                     # termasuk .env
 ```
 
-- **Env** (`.env.example`): `ROBINHOOD_RPC_URL`, `ROBINHOOD_TESTNET_RPC_URL`, `ANVIL_RPC_URL`, `DEPLOYER_PRIVATE_KEY` (hanya untuk testnet/anvil), `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
-- **Guard mainnet**: script deploy `require(block.chainid != 4663)`; tidak ada konfigurasi broadcast mainnet di repo.
-- OpenZeppelin v5 via `forge install` (pinned), Solidity `^0.8.24` (compile dengan versi pinned di `foundry.toml`, mis. `0.8.24`/`0.8.26`), `via_ir` hanya bila perlu.
+- **Env:** `ROBINHOOD_RPC_URL`, `ROBINHOOD_TESTNET_RPC_URL`, `ANVIL_RPC_URL`, `DEPLOYER_PRIVATE_KEY` (hanya anvil/testnet), `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
+- **Guard mainnet:** script deploy `require(block.chainid != 4663)`.
 
 ---
 
@@ -618,35 +603,33 @@ tabb/
 
 | Halaman | Isi |
 |---|---|
-| **Lend** | Deposit/withdraw USDG; APY lender (supplyRate), utilisasi, TVL, likuiditas tersedia. |
-| **Open a Tab** | Pilih jaminan → jumlah jaminan + jumlah pinjaman; LTV dan HF live (simulasi client-side dari `valueOfAmount` + parameter RiskConfig), badge market open/closed, estimasi tanggal lunas; **peringatan risiko wajib** (checkbox konfirmasi) sebelum borrow. |
-| **My Tabs** | Daftar tab, sisa utang, bunga vs pokok, yield yang sudah melunasi, pending yield, estimasi tanggal lunas, HF; tombol harvest/repay/add/withdraw/claim credit/close. |
-| **Liquidations** | Daftar tab dengan HF < 1,1 (diurutkan), jumlah maksimal yang bisa dilikuidasi, estimasi bonus; tombol liquidate. Data dari event `TabOpened` + multicall (tanpa indexer di MVP). |
-| **Agents** | "Coming soon" + penjelasan Fase 2. |
+| **Lend** | Deposit/withdraw USDG; APY lender, utilisasi, TVL, likuiditas tersedia, **total eksposur kredit agent dan reserve** (pengungkapan risiko: kredit agent tidak dijamin aset penuh). |
+| **Agents** | Hubungkan wallet → daftar `agentId` milik pengguna (dari registry) → setor stake → preview limit, tier, dan skor → buka tab → draw. **Peringatan risiko wajib** (checkbox) sebelum draw: stake bisa di-slash, aturan pembayaran minimum, dan waktu delinquency/default. |
+| **My Agent Tabs** | Utang (bunga vs pokok), limit, tier dan rincian skor, jatuh tempo pembayaran minimum berikutnya, alamat splitter (salin/QR untuk dibagikan ke klien), saldo PolicyAccount, pendapatan 90 hari, yield yang sudah melunasi. Tombol: repay, distribute, draw, set operator/payout/split, tarik stake, close. |
+| **Risk monitor** | Daftar tab yang mendekati jatuh tempo, delinquent, atau siap default. Tombol `markDelinquent` / `markDefault` untuk keeper. |
+| **Yield Tab** | "Coming soon" (Fase 2). |
 
-Gaya: mobile-first, dark mode default, Tailwind, komponen sederhana tanpa library UI berat. Chain config Robinhood Chain (4663) + anvil (31337) dengan RPC dari env. Alamat contract dibaca dari `config/addresses.ts`.
+Gaya: mobile-first, dark mode default, Tailwind. Chain: Robinhood Chain (4663) + anvil (31337), RPC dari env. Data dari event + multicall (tanpa indexer di MVP).
 
 ---
 
 ## 15. Alamat yang harus diisi (TODO)
 
-Semua masuk ke `config/addresses.ts` dan `contracts/script/Config.s.sol` sebagai `address(0)` dengan komentar `// TODO`. **Tidak ada alamat yang dikarang.**
+Semua di `config/addresses.ts` dan `contracts/script/Config.s.sol` sebagai `address(0)` + `// TODO`. **Tidak ada alamat yang dikarang.**
 
-| Item | Mainnet (4663) | Testnet | Catatan |
-|---|---|---|---|
-| USDG token | TODO | TODO | Verifikasi `decimals()` |
-| Chainlink L2 Sequencer Uptime Feed | TODO | TODO | Jika tidak ada di Robinhood Chain → Q10 |
-| Chainlink USDG/USD feed | TODO (opsional) | TODO | Q6 |
-| Feed harga YT / saham underlying | TODO per YT | TODO | Q2 |
-| Feed status market (jika ada) | TODO (opsional) | TODO | Fallback manual |
-| Vault ERC-4626 USDG (mis. Morpho) | TODO per vault | TODO | Harus di-review sebelum whitelist |
-| Token YT Clipt | TODO per seri | TODO | Interface claim → Q2 |
-| ERC-8004 Identity Registry | TODO (Fase 2) | TODO | |
-| Owner / Timelock | TODO | TODO | |
-| Guardian | TODO | TODO | |
-| Treasury (reserves) | TODO | TODO | |
+| Item | Fase | Catatan |
+|---|---|---|
+| USDG token (mainnet/testnet) | 1 | Verifikasi `decimals()` |
+| ERC-8004 Identity Registry | 1 | Versi dan interface harus diverifikasi (Q-A1) |
+| ERC-8004 Reputation Registry | 1 (opsional) | Tidak dipakai di skor MVP |
+| Payee awal (penyedia compute/API) | 1 | Daftar dari Anda (Q-A6) |
+| Owner / Timelock, Guardian, Treasury, Payee curator | 1 | |
+| Chainlink Sequencer Uptime Feed | 2 | Q-Y10 |
+| Feed USDG/USD, feed harga YT/saham, feed status market | 2 | Q-Y2, Q-Y6 |
+| Vault ERC-4626 USDG (mis. Morpho) | 2 | |
+| Token YT Clipt | 2 | Q-Y2 |
 
-Di anvil semua diganti dengan mock oleh `DeployLocal.s.sol`.
+Di anvil semua diganti mock oleh `DeployLocal.s.sol`.
 
 ---
 
@@ -654,35 +637,66 @@ Di anvil semua diganti dengan mock oleh `DeployLocal.s.sol`.
 
 | # | Isi | Gate |
 |---|---|---|
-| 1 | `docs/DESIGN.md` | **Persetujuan Anda** |
-| 2 | Scaffold monorepo, mock, `TabbPool`, `InterestRateModel` + test | Laporan test |
-| 3 | `TabManager`, `RiskConfig`, `OracleRouter`, dua adapter + test | Laporan test |
-| 4 | `YieldHarvester`, `Liquidator`, invariant, skenario E2E + stres, coverage | Laporan test + coverage |
-| 5 | Interface dan stub Fase 2 | Laporan test |
-| 6 | Frontend terhubung ke anvil + script deploy testnet | Laporan test + cara menjalankan |
+| 1 | `docs/DESIGN.md` v0.2 (urutan fase dibalik) | **Persetujuan Anda** |
+| 2 | Scaffold monorepo, mock (USDG, ERC-8004), `TabbPool` (index per credit line), `InterestRateModel` + test | Laporan test |
+| 3 | `ERC8004RegistryAdapter`, `OwnerStakeVault`, `AgentRiskConfig`, `AgentCreditScore` + test | Laporan test |
+| 4 | `AgentCreditManager`, `PolicyAccount`, `PayeeRegistry`, `RepaymentSplitter`, waterfall default, fuzz + invariant + skenario E2E/stres, coverage | Laporan test + coverage |
+| 5 | Interface dan stub Fase 2 (yield): `ICollateralAdapter`, `IOracleRouter`, stub `TabManager` sebagai credit line kedua + test integrasi pool | Laporan test |
+| 6 | Frontend (Lend, Agents, My Agent Tabs, Risk monitor, Yield coming soon) terhubung ke anvil + script deploy testnet | Laporan test + cara menjalankan |
 | 7 | `docs/SECURITY.md` | Review |
+| 8+ | **Fase 2 penuh:** `TabManager`, `RiskConfig`, `OracleRouter`, dua adapter, `YieldHarvester`, `Liquidator`, test lengkap, frontend Yield Tab | Per milestone |
 
 ---
 
 ## 17. Pertanyaan terbuka
 
-Keputusan berikut **belum saya putuskan**; usulan default saya ditulis agar bisa langsung disetujui atau dikoreksi.
+Keputusan berikut **belum diputuskan**. Usulan default ditulis agar bisa langsung disetujui atau dikoreksi.
+
+### 17.1 Umum
 
 | # | Pertanyaan | Usulan default |
 |---|---|---|
-| **Q1** | **Ekonomi lender vs self-repaying.** Jika borrow APR < yield jaminan (syarat self-repaying), lender pool mendapat lebih kecil dari menaruh USDG langsung di vault yang sama. Apakah pool boleh menaruh cash menganggur ke vault ERC-4626 (strategi idle cash) untuk menaikkan APY lender? | MVP: tidak (risiko tambahan); IRM dibuat bisa diganti. Dicatat untuk Fase 2. |
-| **Q2** | **Interface dan harga YT Clipt.** Bagaimana fungsi claim dividen (nama fungsi, token dividen — USDG atau lain?), apakah ada `maturity()`, dan dari mana harga YT (feed khusus YT, atau diturunkan dari harga saham × ekspektasi dividen)? | Saya definisikan `IClipYieldToken { claim(); claimable(address); maturity(); }`, dividen dalam USDG, harga dari satu feed Chainlink-compatible per YT. Adapter disesuaikan setelah spesifikasi Clipt tersedia. |
-| **Q3** | Saat market closed untuk YT: turunkan LTV (25%) atau bekukan borrow total? | Bekukan (`closedMarketLTV = 0`) sebagai default; bisa diubah ke 25%. |
-| **Q4** | Pool memakai `balanceOf` (donasi masuk ke lender) atau tracking cash internal? | `balanceOf` + offset; lebih sederhana dan donasi menguntungkan lender. |
-| **Q5** | Proteksi manipulasi harga share vault: cukup whitelist, atau tambah batas kenaikan harga per periode (harvest/valuasi dibatasi)? | Whitelist + batas kenaikan untuk **valuasi borrow** (bukan untuk harvest). |
-| **Q6** | Apakah USDG diasumsikan $1, atau perlu feed USDG/USD? Hanya relevan untuk YT (dinilai dalam USD). | Pakai feed jika ada; jika tidak, 1:1 dengan catatan risiko. |
-| **Q7** | Apakah `liquidate()` otomatis memanggil harvest dulu (adil bagi borrower, tapi gas lebih mahal dan bisa gagal)? | Tidak; harvest terpisah, keeper didorong harvest posisi berisiko. |
-| **Q8** | Boleh-kah guardian/owner mempause withdraw lender dan likuidasi? | Withdraw lender: pausable oleh guardian (insiden). Likuidasi: hanya owner, bukan guardian. |
-| **Q9** | Likuidasi YT in-kind: siapa pembeli YT? Perlu likuidator internal/DEX route? | MVP in-kind saja + borrow cap kecil. |
-| **Q10** | Apakah Robinhood Chain punya Chainlink Sequencer Uptime Feed? Jika tidak, apa fallback-nya? | Jika tidak ada: flag `sequencerCheckEnabled = false` + guardian pause manual; dicatat sebagai risiko. |
-| **Q11** | Kelebihan yield setelah lunas: dikreditkan sebagai saldo claimable (pull) atau langsung dikirim ke pemilik? | Pull (`ownerCredit` + `claimCredit`) — lebih aman terhadap penerima yang revert. |
-| **Q12** | Apakah tab perlu bisa ditransfer (NFT ERC-721) di masa depan? | Tidak di MVP; `owner` disimpan di struct sehingga bisa ditambah wrapper nanti. |
-| **Q13** | Siapa yang boleh set status market manual: hanya owner, atau role keeper khusus? | Role `MARKET_KEEPER` yang di-set owner; keeper hanya bisa set *closed* ↔ *open*, tidak mengubah parameter. |
-| **Q14** | Reward keeper dibayar dari yield (mengurangi pelunasan) atau dari reserves protokol? | Dari yield (0,5%, maks 25 USDG) — self-funding, tidak membebani lender. |
-| **Q15** | Testnet mana yang dipakai (Robinhood Chain testnet tersedia? chain ID?) | Konfigurasi testnet sebagai TODO di `.env`/config; script menolak chain ID 4663. |
-| **Q16** | Satu pool USDG untuk semua jaminan (risiko bersama) atau pool terisolasi per jaminan? | Satu pool + borrow cap per jaminan (MVP). |
+| **Q-U1** | Saat Fase 2 datang: satu pool untuk agent + yield (risiko bercampur), atau **pool terpisah** (kode `TabbPool` yang sama, dua deployment)? | **Pool terpisah.** Lender memilih profil risikonya sendiri; kredit agent jauh lebih berisiko. |
+| **Q-U2** | Pool memakai `balanceOf` atau tracking cash internal? | `balanceOf` + offset. |
+| **Q-U3** | Boleh-kah guardian mempause withdraw lender? | Ya (untuk insiden); unpause hanya owner. |
+| **Q-U4** | Testnet mana yang dipakai (ada Robinhood Chain testnet? chain ID?) | TODO di env/config; script menolak 4663. |
+
+### 17.2 Fase 1 — Agent credit
+
+| # | Pertanyaan | Usulan default |
+|---|---|---|
+| **Q-A1** | Versi dan alamat ERC-8004 Identity Registry di Robinhood Chain? Apakah sudah ter-deploy? Interface persisnya (`ownerOf`, metadata `agentWallet`, waktu registrasi)? | Adapter dengan `ownerOf` (ERC-721) saja sebagai syarat minimum; umur memakai `firstSeenAt` Tabb. Jika registry belum ada di chain → hanya mock di anvil/testnet. |
+| **Q-A2** | NFT identitas dipindah saat ada utang: bekukan draw (usulan), atau escrow NFT ke manager selama tab terbuka? Escrow lebih aman, tapi bisa mengganggu agent yang perlu meng-update metadata. | Bekukan + pemilik lama tetap liable + `assumeTab` untuk pemilik baru. |
+| **Q-A3** | Apakah pendapatan agent yang dihitung harus berasal dari banyak payer berbeda (anti wash), padahal payer juga bisa sybil? | Tidak di MVP; andalkan batas `stake × leverage`. |
+| **Q-A4** | Token stake: USDG saja, atau boleh token lain (mis. share `TabbPool`, sehingga stake tetap berbunga)? Leverage tier 1,0/1,5/2,0× cocok? | USDG saja di MVP; leverage seperti tabel. |
+| **Q-A5** | Klien membayar agent dalam token selain USDG (USDC, ETH)? | Tidak dihitung sebagai pendapatan, diteruskan 100% ke payout. Swap otomatis nanti. |
+| **Q-A6** | Siapa yang mengkurasi payee whitelist dan bagaimana prosesnya? Apakah boleh ada whitelist per agent? Daftar payee awal? | Global saja, role `PAYEE_CURATOR` (multisig Anda). Daftar awal dari Anda. |
+| **Q-A7** | Jadwal pembayaran minimum (30 hari, bunga + 10% pokok), grace 7 hari, default 30 hari: cocok untuk pola pendapatan agent? | Ya sebagai awal; semua parameter bisa diubah. |
+| **Q-A8** | `splitBps`: satu nilai global, atau per agent dengan batas minimum? Saat utang 0, apakah 0% (semua ke agent)? | Per agent ≥ `minSplitBps`; 0% saat utang 0; 100% saat delinquent. |
+| **Q-A9** | Fee protokol pada `distribute` (mis. 0,1%) untuk membuat wash revenue mahal dan mengisi reserve? | Tidak di MVP (parameter ada, default 0). |
+| **Q-A10** | Pakai ERC-8004 Reputation/Validation Registry di skor? | Tidak di MVP (mudah disybil); bisa ditambahkan sebagai komponen ber-bobot kecil nanti. |
+| **Q-A11** | Origination fee? Spread +8% cukup untuk risiko kredit tanpa jaminan penuh? | Fee 0; spread 8%. |
+| **Q-A12** | PolicyAccount: contract sederhana dengan operator key (usulan), atau ERC-4337 / modul Safe / ERC-7579 agar kompatibel dengan stack agent yang ada? | Sederhana di MVP, interface `IPolicyAccount` dibuat netral agar bisa diganti modul 7579 nanti. |
+| **Q-A13** | Kalau pemilik menyetor dana sendiri ke PolicyAccount, dana itu ikut terkunci dan bisa di-sweep saat default. Boleh, atau tolak dana non-pinjaman? | Boleh, dengan peringatan jelas di UI (dianggap jaminan tambahan). |
+| **Q-A14** | Setelah default, pendapatan yang masuk ke splitter belakangan: 100% ke pool (recovery) sampai berapa lama / berapa jumlah? | 100% ke pool sampai kerugian bersih tertutup, tanpa batas waktu. |
+| **Q-A15** | Perlu lapisan *first loss* dari protokol (insurance fund / junior tranche) sejak awal, selain stake dan reserve? | Reserve factor 10% sebagai lapisan asuransi di MVP; junior tranche nanti. |
+| **Q-A16** | Bagaimana klien membayar agent di Robinhood Chain? (x402, transfer langsung, invoice?) Apakah kita perlu helper `payAgent(agentId)`? | Transfer langsung ke alamat splitter + helper `payAgent` opsional di frontend. |
+| **Q-A17** | Kepatuhan: pinjaman tanpa jaminan penuh ke agent/pemiliknya mungkin perlu KYC atau batasan yurisdiksi. Perlu allowlist pemilik di MVP? | Ada hook `ownerAllowlist` (default nonaktif); keputusan hukum di tangan Anda. |
+
+### 17.3 Fase 2 — Yield credit (dari v0.1, belum dijawab)
+
+| # | Pertanyaan | Usulan default |
+|---|---|---|
+| **Q-Y1** | Lender pool yield mendapat lebih kecil dari vault yang sama jika borrow APR < yield jaminan. Strategi idle cash ke vault? | Tidak di MVP. |
+| **Q-Y2** | Interface YT Clipt (claim, token dividen, `maturity()`) dan sumber harga YT. | `IClipYieldToken { claim(); claimable(address); maturity(); }`, dividen USDG, satu feed per YT. |
+| **Q-Y3** | Market closed untuk YT: LTV 25% atau beku total? | Beku (`closedMarketLTV = 0`). |
+| **Q-Y5** | Proteksi manipulasi harga share vault. | Whitelist + batas kenaikan untuk valuasi borrow. |
+| **Q-Y6** | USDG = $1 atau feed USDG/USD? | Feed jika ada, kalau tidak 1:1. |
+| **Q-Y7** | `liquidate()` otomatis harvest dulu? | Tidak. |
+| **Q-Y8** | Pause likuidasi? | Hanya owner. |
+| **Q-Y9** | Likuidasi YT in-kind: siapa pembelinya? | In-kind + borrow cap kecil. |
+| **Q-Y10** | Sequencer Uptime Feed di Robinhood Chain? | Jika tidak ada: flag nonaktif + guardian pause manual. |
+| **Q-Y11** | Kelebihan yield: pull atau push? | Pull. |
+| **Q-Y12** | Tab bisa ditransfer (NFT)? | Tidak di MVP. |
+| **Q-Y13** | Siapa yang set status market manual? | Role `MARKET_KEEPER`. |
+| **Q-Y14** | Reward keeper dari yield atau reserves? | Dari yield. |
