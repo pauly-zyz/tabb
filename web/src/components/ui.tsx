@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -92,7 +93,23 @@ export function Badge({ label }: { label: string }) {
 }
 
 export function TxStatus({ status, error }: { status: string; error?: string }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (status !== "pending") return;
+    const t = setTimeout(() => setSlow(true), 15_000);
+    return () => clearTimeout(t);
+  }, [status]);
   if (status === "idle") return null;
+  if (status === "pending" && slow) {
+    return (
+      <p className="mt-2 text-xs text-amber-300">
+        No confirmation yet? Open your wallet extension manually — the request may be waiting there. If nothing shows up,
+        another wallet extension may have intercepted it: disconnect (click your address), then reconnect by choosing your
+        wallet by name (e.g. MetaMask), and try again.
+      </p>
+    );
+  }
   if (status === "error") return <p className="mt-2 break-words text-xs text-red-300">⚠ {error}</p>;
   const text = { pending: "Confirm in your wallet…", confirming: "Waiting for confirmation…", success: "Confirmed ✓" }[
     status
