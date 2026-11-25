@@ -30,10 +30,11 @@ export const anvilChain = defineChain({
 const SUPPORTED = [robinhoodChain, robinhoodTestnet, anvilChain] as const;
 
 /**
- * Chain the app targets. Defaults to Robinhood Chain testnet (46630) until the audited mainnet deploy exists.
- * Set NEXT_PUBLIC_CHAIN_ID=4663 for mainnet or 31337 for local anvil.
+ * Chain the app targets. Defaults to Robinhood Chain mainnet (4663), the public launch target. Until the audited
+ * mainnet addresses are filled in config/addresses.ts the UI shows "not deployed yet" and disables actions.
+ * Set NEXT_PUBLIC_CHAIN_ID=46630 for testnet or 31337 for local anvil.
  */
 export const activeChain =
-  SUPPORTED.find((c) => c.id === Number(process.env.NEXT_PUBLIC_CHAIN_ID || 46630)) ?? robinhoodTestnet;
+  SUPPORTED.find((c) => c.id === Number(process.env.NEXT_PUBLIC_CHAIN_ID || 4663)) ?? robinhoodChain;
 
 export const activeRpc = activeChain.rpcUrls.default.http[0] || "";

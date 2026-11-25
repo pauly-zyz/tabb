@@ -22,8 +22,8 @@ not only from collateral.
 contracts/   Foundry (Solidity 0.8.24, OpenZeppelin v5)
 web/         Next.js App Router + wagmi v2 + viem + Tailwind (static export)
 config/      addresses.ts — per-chain addresses (TODO placeholders, nothing invented)
-docs/        DESIGN.md, SECURITY.md
-scripts/     export-abis.mjs — copy ABIs from Foundry artifacts into web/
+docs/        DESIGN.md, SECURITY.md, LAUNCH.md (public launch checklist)
+scripts/     export-abis.mjs (ABIs → web/), sync-addresses.mjs (deployment JSON → config/addresses.ts), deploy-testnet.sh
 ```
 
 ## Contracts

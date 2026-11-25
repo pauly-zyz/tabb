@@ -108,6 +108,20 @@ except non-upgradeable EIP-1167 clones (`PolicyAccount`, `RepaymentSplitter`).
 - Coverage (206 tests): `AgentCreditManager` 99.7% lines; `TabManager` 100%; `YieldHarvester` 100%; `Liquidator` 100%;
   `PolicyAccount` 98%; `RepaymentSplitter` 100%; `AgentCreditScore` 100%; `TabbPool` 93.5%; total 91.6%.
 
+### 5.1 Static analysis (Slither 0.11, medium + high detectors, `lib/`, `test/`, `script/` excluded)
+
+53 results, all triaged — none exploitable:
+
+| Detector | Count | Triage |
+|---|---|---|
+| `arbitrary-send-erc20` (adapters `deposit`) | 2 | False positive: `onlyTabManager` + `nonReentrant`; `TabManager` always passes `msg.sender` as `from`. |
+| `reentrancy-eth` (`PolicyAccount.execute`) | 1 | Accepted: `onlyOperator` + `nonReentrant`; target must be on the curated (target, selector) list and cannot be USDG/self/manager; USDG outflow is measured after the call and counted against the daily cap. |
+| `weak-prng` (`AgentCreditScore`) | 1 | False positive: `epoch % RING` is a ring-buffer index, not randomness. |
+| `reentrancy-no-eth` | 20 | Accepted: every entrypoint is `nonReentrant`; external calls go only to protocol-owned contracts (pool, clones, vault, score, whitelisted adapters/vault/YT). |
+| `incorrect-equality` | 12 | Benign `== 0` guards (division by zero, empty state). |
+| `unused-return` | 10 | Intentional (oracle tuple fields unused; `repay`/`sweep` amounts already accounted). |
+| `uninitialized-local` | 7 | Benign: zero default is the intended initial value. |
+
 ## 6. Pre-audit checklist
 
 - [ ] Freeze scope and tag a commit for the auditors.
@@ -120,7 +134,7 @@ except non-upgradeable EIP-1167 clones (`PolicyAccount`, `RepaymentSplitter`).
 - [ ] Set guardian to a separate hot multisig with pause-only runbook.
 - [ ] Define payee curation policy (KYB of providers, no DEX/bridge targets, no transfer-capable selectors).
 - [ ] Run `forge test --profile ci` (2048 fuzz runs) and a longer invariant campaign (e.g. 1,000 runs × 200 depth).
-- [ ] Static analysis (Slither / Aderyn) and resolve findings.
+- [x] Static analysis (Slither) — triaged in §5.1. Aderyn still open.
 - [ ] Review rounding paths in `_applyPayment`, `writeOff` treasury burn, and `_snapshot` treasury share math.
 - [ ] Review min-payment model (R6) vs. maximum borrow rate.
 - [ ] Gas review of `markDefault` worst case and `useAllTabs` frontend enumeration → plan an indexer.
