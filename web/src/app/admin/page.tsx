@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { isAddress } from "viem";
-import { useAccount, useReadContracts } from "wagmi";
+import { useAccount, useReadContracts, useSwitchChain } from "wagmi";
+import { activeChain } from "@/lib/chains";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { Button, Card, Input, Notice, Row, SectionTitle, TxStatus } from "@/components/ui";
 import { shortAddr } from "@/lib/format";
@@ -38,14 +39,18 @@ const CONTRACTS = [
 const PAUSE_OPEN_AND_DRAW = 3n;
 
 export default function AdminPage() {
-  const { address } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
+  const { switchChain } = useSwitchChain();
+  const wrongChain = isConnected && chainId !== activeChain.id;
   const reads = useReadContracts({
     contracts: CONTRACTS.flatMap(([, k]) => [
       { address: A[k], abi: adminAbi, functionName: "owner" as const },
       { address: A[k], abi: adminAbi, functionName: "pendingOwner" as const },
     ]),
-    query: { enabled: deployed },
+    query: { enabled: deployed, refetchInterval: 15_000 },
   });
+  const pendingOwners = CONTRACTS.map((_, i) => reads.data?.[i * 2 + 1]?.result as `0x${string}` | undefined);
+  const expectedOwner = pendingOwners.find((x) => x && !/^0x0{40}$/i.test(x));
   const flags = useReadContracts({
     contracts: [{ address: A.agentCreditManager, abi: adminAbi, functionName: "pausedFlags" }],
     query: { enabled: deployed },
@@ -66,14 +71,42 @@ export default function AdminPage() {
             <p className="text-sm text-zinc-400">
               The deploy hands ownership over with Ownable2Step. The new owner must accept it on every contract.
             </p>
+            <div className="rounded-xl bg-ink-800 p-3 text-sm">
+              <Row k="Connected wallet" v={isConnected ? shortAddr(address) : "not connected"} />
+              <Row k="Network" v={!isConnected ? "—" : wrongChain ? `wrong (chain ${chainId})` : activeChain.name} />
+              {expectedOwner && <Row k="Pending owner" v={shortAddr(expectedOwner)} />}
+            </div>
+            {!isConnected && (
+              <Notice tone="warn">Connect the pending owner wallet with the button at the top right.</Notice>
+            )}
+            {wrongChain && (
+              <Button variant="danger" onClick={() => switchChain({ chainId: activeChain.id })}>
+                Switch wallet to {activeChain.name}
+              </Button>
+            )}
+            {isConnected && !wrongChain && expectedOwner && address?.toLowerCase() !== expectedOwner.toLowerCase() && (
+              <Notice tone="danger">
+                The connected wallet ({shortAddr(address)}) is not the pending owner ({shortAddr(expectedOwner)}). Switch
+                accounts in your wallet.
+              </Notice>
+            )}
+            {reads.isError && (
+              <Notice tone="danger">
+                Could not read contract owners from the RPC.{" "}
+                <button className="underline" onClick={() => reads.refetch()}>
+                  Retry
+                </button>
+              </Notice>
+            )}
             {CONTRACTS.map(([label, k], i) => (
               <OwnerRow
                 key={k}
                 label={label}
                 target={A[k]}
                 owner={reads.data?.[i * 2]?.result as `0x${string}` | undefined}
-                pending={reads.data?.[i * 2 + 1]?.result as `0x${string}` | undefined}
+                pending={pendingOwners[i]}
                 me={address}
+                ready={isConnected && !wrongChain}
               />
             ))}
           </Card>
@@ -85,20 +118,34 @@ export default function AdminPage() {
   );
 }
 
-function OwnerRow(p: { label: string; target: `0x${string}`; owner?: `0x${string}`; pending?: `0x${string}`; me?: string }) {
+function OwnerRow(p: {
+  label: string;
+  target: `0x${string}`;
+  owner?: `0x${string}`;
+  pending?: `0x${string}`;
+  me?: string;
+  ready: boolean;
+}) {
   const tx = useTx();
-  const canAccept = !!p.me && !!p.pending && p.pending.toLowerCase() === p.me.toLowerCase();
   const hasPending = !!p.pending && !/^0x0{40}$/i.test(p.pending);
+  const isPendingMe = hasPending && !!p.me && p.pending!.toLowerCase() === p.me.toLowerCase();
+  const isOwnerMe = !!p.me && !!p.owner && p.owner.toLowerCase() === p.me.toLowerCase();
   return (
     <div className="rounded-xl border border-ink-700 p-3 text-sm">
       <Row k={p.label} v={shortAddr(p.target)} />
       <Row k="Owner" v={p.owner ? shortAddr(p.owner) : "—"} />
       {hasPending && <Row k="Pending owner" v={shortAddr(p.pending!)} />}
-      {canAccept && (
+      {isOwnerMe && <div className="mt-1 text-xs font-semibold text-tab-400">✓ You own this contract</div>}
+      {hasPending && (
         <div className="mt-2">
           <Button
-            disabled={tx.busy}
-            onClick={() => tx.send({ address: p.target, abi: adminAbi, functionName: "acceptOwnership" }, "Accept")}
+            disabled={tx.busy || !p.ready || !isPendingMe}
+            onClick={() =>
+              tx.send(
+                { address: p.target, abi: adminAbi, functionName: "acceptOwnership", chainId: activeChain.id },
+                "Accept",
+              )
+            }
           >
             Accept ownership
           </Button>
