@@ -7,6 +7,7 @@ pragma solidity ^0.8.24;
 library TabbConfig {
     uint256 internal constant ANVIL = 31337;
     uint256 internal constant ROBINHOOD_MAINNET = 4663;
+    uint256 internal constant ROBINHOOD_TESTNET = 46630; // verified via eth_chainId on rpc.testnet.chain.robinhood.com
 
     struct External {
         address usdg; // TODO per chain: USDG token (verify decimals() == 6)
@@ -41,7 +42,8 @@ library TabbConfig {
                 cliptYtPriceFeed: address(0) // TODO
             });
         }
-        // Robinhood Chain testnet: chain id and addresses TODO (see docs/DESIGN.md Q-U4). Until filled, testnet
-        // deploys use DEPLOY_MOCKS=true. Anvil (31337) always deploys mocks.
+        // Robinhood Chain testnet (46630): USDG / ERC-8004 / feeds unknown -> address(0); testnet deploys use
+        // DEPLOY_MOCKS=true (mock USDG with public mint, mock ERC-8004 registry, mock vault/YT/feed).
+        // Anvil (31337) always deploys mocks.
     }
 }
