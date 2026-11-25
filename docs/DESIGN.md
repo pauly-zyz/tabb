@@ -74,7 +74,7 @@ Prinsip desain:
 - Full ERC-4337 smart account (PolicyAccount sederhana dengan *operator key*; kompatibilitas 4337 → Q-A12).
 - Pendapatan dalam token selain USDG (Q-A5).
 - Penagihan off-chain / recourse hukum.
-- Deploy mainnet.
+- ~~Deploy mainnet.~~ Diubah 2026-11-25 atas instruksi pemilik: Fase 1 di-deploy ke mainnet lewat `DeployMainnet.s.sol` setelah review internal (`docs/AUDIT.md`). Fase 2 tetap belum di mainnet.
 
 ---
 
@@ -597,7 +597,7 @@ tabb/
 ```
 
 - **Env:** `ROBINHOOD_RPC_URL`, `ROBINHOOD_TESTNET_RPC_URL`, `ANVIL_RPC_URL`, `DEPLOYER_PRIVATE_KEY` (hanya anvil/testnet), `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
-- **Guard mainnet:** script deploy `require(block.chainid != 4663)`.
+- **Guard mainnet:** `DeployLocal`/`DeployTestnet` menolak chain 4663. Mainnet hanya lewat `DeployMainnet.s.sol` (wajib `TABB_OWNER` ≠ deployer; ownership via Ownable2Step).
 
 ---
 

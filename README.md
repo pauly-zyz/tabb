@@ -13,8 +13,9 @@ not only from collateral.
   (USDG ERC-4626 vault shares, Clipt stock-dividend YT) in a separate pool. Keepers harvest yield (interest first, then
   principal); partial liquidation below HF 1; "market closed" mode for stock-linked collateral.
 
-> ⚠️ Unaudited. Deploy scripts target **anvil and testnet only**. Mainnet deployment is done manually by the team after
-> an audit.
+> ⚠️ Internal (AI) security review only — see [`docs/AUDIT.md`](docs/AUDIT.md); no independent third-party audit yet.
+> Phase 1 deploys to mainnet via `scripts/deploy-mainnet.sh` (see [`docs/LAUNCH.md`](docs/LAUNCH.md)); Phase 2 is
+> testnet/local only until verified feeds, vault and YT exist on mainnet.
 
 ## Repository
 
@@ -22,8 +23,8 @@ not only from collateral.
 contracts/   Foundry (Solidity 0.8.24, OpenZeppelin v5)
 web/         Next.js App Router + wagmi v2 + viem + Tailwind (static export)
 config/      addresses.ts — per-chain addresses (TODO placeholders, nothing invented)
-docs/        DESIGN.md, SECURITY.md, LAUNCH.md (public launch checklist)
-scripts/     export-abis.mjs (ABIs → web/), sync-addresses.mjs (deployment JSON → config/addresses.ts), deploy-testnet.sh
+docs/        DESIGN.md, SECURITY.md, AUDIT.md (internal review), LAUNCH.md (mainnet launch)
+scripts/     export-abis.mjs, sync-addresses.mjs, deploy-testnet.sh, deploy-mainnet.sh, fork-mainnet-check.sh
 ```
 
 ## Contracts
@@ -103,11 +104,21 @@ Output goes to `contracts/deployments/<chainId>.json`; copy it into `config/addr
 The web app is a static export (`web/out`). Vercel: either set **Root Directory = `web`** (framework auto-detected), or
 keep the repo root — `vercel.json` builds `web/` and serves `web/out`.
 
-Environment variables (all public): `NEXT_PUBLIC_CHAIN_ID` (default `4663`), `NEXT_PUBLIC_ROBINHOOD_RPC_URL`,
+Environment variables (all public, all optional): `NEXT_PUBLIC_CHAIN_ID` (default `4663`), `NEXT_PUBLIC_ROBINHOOD_RPC_URL` (default: public RPC),
 `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. While contracts are not deployed on the selected chain,
 the UI shows a "not deployed yet" notice and disables actions.
 
 After changing contracts: `forge build && node scripts/export-abis.mjs`.
+
+## Mainnet
+
+```bash
+FORGE=~/.foundry/bin/forge CAST=~/.foundry/bin/cast scripts/deploy-mainnet.sh
+```
+
+Needs `ROBINHOOD_MAINNET_RPC_URL`, `MAINNET_DEPLOYER_PRIVATE_KEY` (ETH + 10 USDG) and `TABB_OWNER` in `.env`. The owner
+accepts ownership of the six contracts on the web `/admin` page. Dry run on a fork first:
+`anvil --fork-url https://rpc.mainnet.chain.robinhood.com --port 8546` then `scripts/fork-mainnet-check.sh`.
 
 ## Addresses to fill in (TODO)
 
