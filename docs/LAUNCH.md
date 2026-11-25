@@ -1,5 +1,10 @@
 # Tabb — Peluncuran Mainnet
 
+> **DEPLOYED 2026-11-25** di Robinhood Chain mainnet (4663). Alamat: `contracts/deployments/4663.json`.
+> AgentCreditManager `0xa7718c1Bd2Cc46246eB7c60ed2A9d4Ca7abF7dD6`, pool `0x4a411aE93b70CaB4CB17C31fA6B3d117cf78870E`.
+> Pending owner / guardian / treasury / curator: `0xF4Ec212DfeC6f159EEC5b9b79c299C863e86Cdc3` (harus menerima
+> ownership di `/admin`).
+
 Status per 2026-11-25:
 
 - Fase 1 (kredit AI agent) siap di-deploy ke Robinhood Chain mainnet (`4663`).
