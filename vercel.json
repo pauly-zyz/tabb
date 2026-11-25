@@ -3,5 +3,15 @@
   "framework": null,
   "installCommand": "cd web && npm ci",
   "buildCommand": "cd web && npm run build",
-  "outputDirectory": "web/out"
+  "outputDirectory": "web/out",
+  "rewrites": [
+    {
+      "source": "/rpc/mainnet",
+      "destination": "https://rpc.mainnet.chain.robinhood.com/"
+    },
+    {
+      "source": "/rpc/testnet",
+      "destination": "https://rpc.testnet.chain.robinhood.com/"
+    }
+  ]
 }
