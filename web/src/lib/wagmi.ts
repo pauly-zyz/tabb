@@ -1,4 +1,4 @@
-import { createConfig, http } from "wagmi";
+import { createConfig, fallback, http, unstable_connector } from "wagmi";
 import { injected, walletConnect } from "wagmi/connectors";
 import { activeChain, anvilChain, robinhoodChain, robinhoodTestnet } from "./chains";
 
@@ -11,8 +11,9 @@ export const wagmiConfig = createConfig({
     ...(wcProjectId ? [walletConnect({ projectId: wcProjectId, showQrModal: true })] : []),
   ],
   transports: {
-    [robinhoodChain.id]: http(robinhoodChain.rpcUrls.default.http[0] || undefined),
-    [robinhoodTestnet.id]: http(robinhoodTestnet.rpcUrls.default.http[0]),
+    // If the public RPC fails in the user's browser (rate limit, network filter), reads fall back to the wallet's RPC.
+    [robinhoodChain.id]: fallback([http(robinhoodChain.rpcUrls.default.http[0]), unstable_connector(injected)]),
+    [robinhoodTestnet.id]: fallback([http(robinhoodTestnet.rpcUrls.default.http[0]), unstable_connector(injected)]),
     [anvilChain.id]: http(anvilChain.rpcUrls.default.http[0]),
   },
   ssr: true, // hydrate as disconnected, then reconnect (avoids hydration mismatch with static export)

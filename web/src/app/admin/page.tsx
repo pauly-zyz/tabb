@@ -90,9 +90,11 @@ export default function AdminPage() {
                 accounts in your wallet.
               </Notice>
             )}
-            {reads.isError && (
-              <Notice tone="danger">
-                Could not read contract owners from the RPC.{" "}
+            {(reads.isError || reads.data?.some((r) => r.status === "failure")) && (
+              <Notice tone="warn">
+                Could not read the current owners from the RPC
+                {reads.error ? ` (${reads.error.message.split("\n")[0]})` : ""}. You can still press Accept ownership —
+                the contract rejects it if your wallet is not the pending owner.{" "}
                 <button className="underline" onClick={() => reads.refetch()}>
                   Retry
                 </button>
@@ -130,16 +132,17 @@ function OwnerRow(p: {
   const hasPending = !!p.pending && !/^0x0{40}$/i.test(p.pending);
   const isPendingMe = hasPending && !!p.me && p.pending!.toLowerCase() === p.me.toLowerCase();
   const isOwnerMe = !!p.me && !!p.owner && p.owner.toLowerCase() === p.me.toLowerCase();
+  const unknown = p.pending === undefined; // read failed: let the owner try anyway
   return (
     <div className="rounded-xl border border-ink-700 p-3 text-sm">
       <Row k={p.label} v={shortAddr(p.target)} />
       <Row k="Owner" v={p.owner ? shortAddr(p.owner) : "—"} />
       {hasPending && <Row k="Pending owner" v={shortAddr(p.pending!)} />}
       {isOwnerMe && <div className="mt-1 text-xs font-semibold text-tab-400">✓ You own this contract</div>}
-      {hasPending && (
+      {(hasPending || unknown) && !isOwnerMe && (
         <div className="mt-2">
           <Button
-            disabled={tx.busy || !p.ready || !isPendingMe}
+            disabled={tx.busy || !p.ready || (!unknown && !isPendingMe)}
             onClick={() =>
               tx.send(
                 { address: p.target, abi: adminAbi, functionName: "acceptOwnership", chainId: activeChain.id },
