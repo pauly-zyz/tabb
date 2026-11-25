@@ -37,7 +37,7 @@ import {MockERC4626Vault} from "../test/mocks/MockERC4626Vault.sol";
 import {MockYieldToken} from "../test/mocks/MockYieldToken.sol";
 import {MockAggregator} from "../test/mocks/MockAggregator.sol";
 
-/// @notice Shared deployment logic for local and testnet scripts. Mainnet is intentionally NOT supported.
+/// @notice Shared deployment logic for the local, testnet and mainnet scripts.
 abstract contract TabbDeployer is Script {
     uint256 internal constant MAINNET_CHAIN_ID = 4663;
     uint256 internal constant SEED_DEPOSIT = 1_000e6;
@@ -70,7 +70,17 @@ abstract contract TabbDeployer is Script {
         internal
         returns (Core memory c)
     {
-        _assertNotMainnet();
+        return _deployCore(usdg, identityRegistry, deployer, guardian, treasury, SEED_DEPOSIT);
+    }
+
+    function _deployCore(
+        address usdg,
+        address identityRegistry,
+        address deployer,
+        address guardian,
+        address treasury,
+        uint256 seed
+    ) internal returns (Core memory c) {
         c.usdg = usdg;
         c.identityRegistry = identityRegistry;
         c.irm = address(new InterestRateModel(0, 0.06e18, 0.8e18, 0.6e18));
@@ -120,8 +130,8 @@ abstract contract TabbDeployer is Script {
         score.setManager(address(mgr));
 
         // Seed deposit to a dead address (inflation-attack hardening on top of the virtual offset).
-        IERC20(usdg).approve(address(pool), SEED_DEPOSIT);
-        pool.deposit(SEED_DEPOSIT, address(0xdead));
+        IERC20(usdg).approve(address(pool), seed);
+        pool.deposit(seed, address(0xdead));
     }
 
     struct YieldCore {

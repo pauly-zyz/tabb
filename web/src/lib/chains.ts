@@ -1,12 +1,14 @@
 import { defineChain } from "viem";
 import { foundry } from "viem/chains";
 
-/** Robinhood Chain (Arbitrum Orbit L2). RPC comes from env — no URL is hardcoded. */
+/** Robinhood Chain mainnet (Arbitrum Orbit L2, chain ID 4663, verified via eth_chainId on the public RPC). */
 export const robinhoodChain = defineChain({
   id: 4663,
   name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL || ""] } },
+  rpcUrls: {
+    default: { http: [process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com"] },
+  },
 });
 
 /** Robinhood Chain testnet (chain ID 46630, verified via eth_chainId on the public RPC). */

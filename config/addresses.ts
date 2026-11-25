@@ -74,9 +74,9 @@ export const ADDRESSES: Record<number, TabbAddresses> = {
     },
   },
   4663: {
-    usdg: ZERO, // TODO: USDG on Robinhood Chain (verify decimals() == 6)
-    identityRegistry: ZERO, // TODO: ERC-8004 Identity Registry on Robinhood Chain
-    interestRateModel: ZERO, // TODO: after manual post-audit deploy
+    usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", // USDG "Global Dollar", 6 decimals (verified on-chain)
+    identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432", // ERC-8004 IdentityRegistry (verified on-chain)
+    interestRateModel: ZERO, // TODO: filled by scripts/sync-addresses.mjs 4663 after the mainnet deploy
     pool: ZERO, // TODO
     registryAdapter: ZERO, // TODO
     riskConfig: ZERO, // TODO

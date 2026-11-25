@@ -30,10 +30,14 @@ library TabbConfig {
 
     function externalFor(uint256 chainId) internal pure returns (External memory e) {
         if (chainId == ROBINHOOD_MAINNET) {
-            // Robinhood Chain mainnet — fill in before the (manual, post-audit) mainnet deploy.
+            // Robinhood Chain mainnet. Phase 2 entries stay TODO until verified feeds / vault / YT exist.
             e = External({
-                usdg: address(0), // TODO
-                identityRegistry: address(0), // TODO
+                // Verified on-chain 2026-11-25 via rpc.mainnet.chain.robinhood.com: symbol "USDG", name "Global Dollar",
+                // decimals 6.
+                usdg: 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168,
+                // ERC-8004 IdentityRegistry (deterministic CREATE2 address; name() == "AgentIdentity", ownerOf and
+                // getMetadata(agentId, "agentWallet") verified on-chain 2026-11-25).
+                identityRegistry: 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432,
                 reputationRegistry: address(0), // TODO (optional)
                 sequencerUptimeFeed: address(0), // TODO
                 usdgUsdFeed: address(0), // TODO (optional)
