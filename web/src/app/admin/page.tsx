@@ -93,8 +93,10 @@ export default function AdminPage() {
             {(reads.isError || reads.data?.some((r) => r.status === "failure")) && (
               <Notice tone="warn">
                 Could not read the current owners from the RPC
-                {reads.error ? ` (${reads.error.message.split("\n")[0]})` : ""}. You can still press Accept ownership —
-                the contract rejects it if your wallet is not the pending owner.{" "}
+                {reads.error ? ` (${reads.error.message.split("\n")[0]})` : ""}. Your network may be blocking the
+                Robinhood RPC — then your wallet cannot send transactions either. In your wallet, edit the Robinhood
+                Chain network and set its RPC URL to <b className="break-all">{activeChain.rpcUrls.default.http[0]}</b>,
+                or use a VPN.{" "}
                 <button className="underline" onClick={() => reads.refetch()}>
                   Retry
                 </button>
