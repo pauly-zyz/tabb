@@ -29,6 +29,8 @@ export interface TabbAddresses {
   yield?: YieldAddresses;
   /** true when USDG / registry are local mocks (enables faucet + "register demo agent") */
   mocks: boolean;
+  /** Symbol of the 6-decimal stablecoin stored in `usdg` (default "USDG"). */
+  stableSymbol?: string;
 }
 
 export interface YieldAddresses {
@@ -86,6 +88,23 @@ export const ADDRESSES: Record<number, TabbAddresses> = {
     payeeRegistry: "0x4bB54eA8172e6753867618C9a790e15b7464f3b5",
     agentCreditManager: "0xa7718c1Bd2Cc46246eB7c60ed2A9d4Ca7abF7dD6",
     mocks: false,
+  },
+  // Elysium (Kinetiq) mainnet. Verified on-chain 2026-11-27 via rpc.elysium.kinetiq.xyz.
+  // No ERC-8004 Identity Registry exists on Elysium yet (canonical 0x8004A169… has no code), so the protocol is not
+  // deployed here; every protocol address stays TODO until a registry exists and the Elysium deploy is run.
+  99901: {
+    usdg: "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65", // USDC (bridged from HyperEVM 0xb883…630f), 6 decimals
+    identityRegistry: ZERO, // TODO: ERC-8004 Identity Registry not deployed on Elysium yet
+    interestRateModel: ZERO, // TODO
+    pool: ZERO, // TODO
+    registryAdapter: ZERO, // TODO
+    riskConfig: ZERO, // TODO
+    stakeVault: ZERO, // TODO
+    creditScore: ZERO, // TODO
+    payeeRegistry: ZERO, // TODO
+    agentCreditManager: ZERO, // TODO
+    mocks: false,
+    stableSymbol: "USDC",
   },
   // TODO: Robinhood Chain testnet — <chainId>: { ...addresses from contracts/deployments/<chainId>.json }
 };

@@ -5,16 +5,17 @@ import { NetworkBanner } from "@/components/NetworkBanner";
 import { Card, Stat } from "@/components/ui";
 import { usePoolStats } from "@/lib/hooks";
 import { fmtUsdg, fmtWadPct } from "@/lib/format";
-import { deployed } from "@/lib/tabb";
+import { deployed, STABLE } from "@/lib/tabb";
+import { activeChain } from "@/lib/chains";
 
 const STEPS = [
   {
     t: "Stake & open a tab",
-    d: "The owner of an ERC-8004 agent posts a USDG stake as first-loss capital and opens a small tab. Limits start at the stake and grow with proven revenue and on-time repayments.",
+    d: `The owner of an ERC-8004 agent posts a ${STABLE} stake as first-loss capital and opens a small tab. Limits start at the stake and grow with proven revenue and on-time repayments.`,
   },
   {
     t: "Spend with guardrails",
-    d: "Borrowed USDG lands in the agent's PolicyAccount. It can only pay curated providers (compute, APIs, data), under a daily cap.",
+    d: `Borrowed ${STABLE} lands in the agent's PolicyAccount. It can only pay curated providers (compute, APIs, data), under a daily cap.`,
   },
   {
     t: "Revenue pays it back",
@@ -28,14 +29,14 @@ export default function Home() {
     <div className="space-y-8">
       <NetworkBanner />
       <section className="pt-4 sm:pt-10">
-        <p className="text-sm font-medium text-tab-400">Revenue-backed credit on Robinhood Chain</p>
+        <p className="text-sm font-medium text-tab-400">Revenue-backed credit on {activeChain.name}</p>
         <h1 className="mt-2 max-w-2xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
           Put it on the tab.
           <br />
           <span className="text-tab-400">Your yield pays it back.</span>
         </h1>
         <p className="mt-4 max-w-xl text-zinc-400">
-          Tabb lends USDG against future income, not just collateral. Phase 1 opens small, stake-backed tabs for AI agents
+          Tabb lends {STABLE} against future income, not just collateral. Phase 1 opens small, stake-backed tabs for AI agents
           that repay themselves from what they earn.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
@@ -49,7 +50,7 @@ export default function Home() {
             href="/lend/"
             className="rounded-xl border border-ink-600 bg-ink-800 px-5 py-3 text-sm font-semibold hover:bg-ink-700"
           >
-            Lend USDG
+            Lend {STABLE}
           </Link>
         </div>
       </section>

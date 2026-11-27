@@ -7,6 +7,8 @@ export const deployed = isDeployed(addrs);
 export const A = (addrs ?? ({} as TabbAddresses)) as TabbAddresses;
 
 export const USDG_DECIMALS = 6;
+/** Display symbol of the network's stablecoin (USDG on Robinhood Chain, USDC on Elysium). */
+export const STABLE = addrs?.stableSymbol ?? "USDG";
 
 export const STATUS = ["None", "Active", "Delinquent", "Defaulted", "Closed"] as const;
 export type StatusName = (typeof STATUS)[number];

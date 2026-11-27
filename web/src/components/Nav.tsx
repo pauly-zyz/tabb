@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "./ConnectButton";
+import { NetworkSwitcher } from "./NetworkSwitcher";
 
 const LINKS = [
   { href: "/lend/", label: "Lend", icon: "◎" },
@@ -34,7 +35,10 @@ export function Nav() {
               </Link>
             ))}
           </nav>
-          <ConnectButton />
+          <div className="flex items-center gap-2">
+            <NetworkSwitcher />
+            <ConnectButton />
+          </div>
         </div>
       </header>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-800 bg-ink-950/95 backdrop-blur md:hidden">

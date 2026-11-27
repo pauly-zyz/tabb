@@ -9,7 +9,7 @@ import { Faucet } from "@/components/Faucet";
 import { Button, Card, Input, Notice, Row, SectionTitle, Stat, TxStatus } from "@/components/ui";
 import { usePoolStats, useUsdgBalance } from "@/lib/hooks";
 import { fmtUsdg, fmtWadPct, parseUsdg } from "@/lib/format";
-import { A, deployed } from "@/lib/tabb";
+import { A, deployed, STABLE } from "@/lib/tabb";
 import { useTx } from "@/lib/useTx";
 
 export default function LendPage() {
@@ -67,7 +67,7 @@ export default function LendPage() {
     <div className="space-y-5">
       <SectionTitle
         title="Lend"
-        subtitle="Deposit USDG into the agent-credit pool (ERC-4626). Earn the base rate plus the agent risk spread."
+        subtitle={`Deposit ${STABLE} into the agent-credit pool (ERC-4626). Earn the base rate plus the agent risk spread.`}
       />
       <NetworkBanner />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -90,9 +90,9 @@ export default function LendPage() {
             inputMode="decimal"
             value={dep}
             onChange={(e) => setDep(e.target.value)}
-            suffix="USDG"
+            suffix={STABLE}
           />
-          <div className="mt-2 text-xs text-zinc-500">Wallet: {fmtUsdg(balance)} USDG</div>
+          <div className="mt-2 text-xs text-zinc-500">Wallet: {fmtUsdg(balance)} {STABLE}</div>
           <Button className="mt-3 w-full" disabled={!deployed || !address || !depAmt || depTx.busy} onClick={deposit}>
             {needsApprove ? "Approve & deposit" : "Deposit"}
           </Button>
@@ -109,10 +109,10 @@ export default function LendPage() {
             inputMode="decimal"
             value={wd}
             onChange={(e) => setWd(e.target.value)}
-            suffix="USDG"
+            suffix={STABLE}
           />
           <div className="mt-2 flex justify-between text-xs text-zinc-500">
-            <span>Max now: {fmtUsdg(maxWithdraw)} USDG</span>
+            <span>Max now: {fmtUsdg(maxWithdraw)} {STABLE}</span>
             <button
               type="button"
               className="text-tab-400"

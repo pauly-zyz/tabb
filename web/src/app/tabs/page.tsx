@@ -15,7 +15,7 @@ import { NetworkBanner } from "@/components/NetworkBanner";
 import { Badge, Button, Card, Input, Meter, Notice, Row, SectionTitle, Stat, TxStatus } from "@/components/ui";
 import { useMyTabs, useUsdgBalance, type TabRow } from "@/lib/hooks";
 import { daysFromNow, fmtBps, fmtDate, fmtUsdg, parseUsdg, shortAddr } from "@/lib/format";
-import { A, deployed, STATUS } from "@/lib/tabb";
+import { A, deployed, STATUS, STABLE } from "@/lib/tabb";
 import { useTx } from "@/lib/useTx";
 
 export default function MyTabsPage() {
@@ -127,8 +127,8 @@ function TabCard({ row }: { row: TabRow }) {
           <h3 className="mb-1 text-sm font-semibold text-zinc-300">Payment schedule</h3>
           {payment && payment.periodEnd > 0n ? (
             <>
-              <Row k="Minimum due this period" v={`${fmtUsdg(payment.minPaymentDue)} USDG`} />
-              <Row k="Paid this period" v={`${fmtUsdg(payment.paidThisPeriod)} USDG`} />
+              <Row k="Minimum due this period" v={`${fmtUsdg(payment.minPaymentDue)} ${STABLE}`} />
+              <Row k="Paid this period" v={`${fmtUsdg(payment.paidThisPeriod)} ${STABLE}`} />
               <Row k="Period ends" v={`${fmtDate(payment.periodEnd)} (${daysFromNow(payment.periodEnd)})`} />
               {payment.pastDue && (
                 <Notice tone="danger">
@@ -159,18 +159,18 @@ function TabCard({ row }: { row: TabRow }) {
               </button>
             }
           />
-          <Row k="Undistributed revenue" v={`${fmtUsdg(splitterBal)} USDG`} />
-          <Row k="PolicyAccount balance" v={`${fmtUsdg(paBal)} USDG`} />
-          <Row k="Revenue (90d)" v={`${fmtUsdg(revenue90)} USDG`} />
+          <Row k="Undistributed revenue" v={`${fmtUsdg(splitterBal)} ${STABLE}`} />
+          <Row k="PolicyAccount balance" v={`${fmtUsdg(paBal)} ${STABLE}`} />
+          <Row k="Revenue (90d)" v={`${fmtUsdg(revenue90)} ${STABLE}`} />
           <Row k="Auto-repay split" v={fmtBps(status === "Delinquent" ? 10_000 : tab.splitBps)} />
-          <Row k="Stake" v={`${fmtUsdg(stake)} USDG ${stakeLocked ? "🔒" : ""}`} />
+          <Row k="Stake" v={`${fmtUsdg(stake)} ${STABLE} ${stakeLocked ? "🔒" : ""}`} />
           {tab.lossWrittenOff > 0n && <Row k="Written off / recovered" v={`${fmtUsdg(tab.lossWrittenOff)} / ${fmtUsdg(tab.recovered)}`} />}
         </div>
 
         <div className="space-y-3">
           {(status === "Active" || status === "Delinquent") && (
             <div>
-              <Input label="Repay" placeholder="0.00" inputMode="decimal" value={repayStr} onChange={(e) => setRepayStr(e.target.value)} suffix="USDG" />
+              <Input label="Repay" placeholder="0.00" inputMode="decimal" value={repayStr} onChange={(e) => setRepayStr(e.target.value)} suffix={STABLE} />
               <Button className="mt-2 w-full" disabled={!repayAmt || repayTx.busy} onClick={repay}>
                 Repay
               </Button>
@@ -237,7 +237,7 @@ function TabCard({ row }: { row: TabRow }) {
           </div>
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <Input label="Pay this agent (as a client)" placeholder="0.00" inputMode="decimal" value={payStr} onChange={(e) => setPayStr(e.target.value)} suffix="USDG" />
+              <Input label="Pay this agent (as a client)" placeholder="0.00" inputMode="decimal" value={payStr} onChange={(e) => setPayStr(e.target.value)} suffix={STABLE} />
             </div>
             <Button
               variant="ghost"
