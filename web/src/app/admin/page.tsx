@@ -7,7 +7,7 @@ import { activeChain } from "@/lib/chains";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { Button, Card, Input, Notice, Row, SectionTitle, TxStatus } from "@/components/ui";
 import { shortAddr } from "@/lib/format";
-import { A, deployed } from "@/lib/tabb";
+import { A, deployed, STABLE } from "@/lib/tabb";
 import { useTx } from "@/lib/useTx";
 
 const adminAbi = [
@@ -170,7 +170,7 @@ function PayeeCard() {
     <Card className="space-y-3">
       <h3 className="font-semibold">Curated payees</h3>
       <p className="text-sm text-zinc-400">
-        Borrowed USDG can only be paid to these addresses (compute, APIs, data). Only add vetted providers; never an
+        Borrowed {STABLE} can only be paid to these addresses (compute, APIs, data). Only add vetted providers; never an
         exchange, bridge or an address a borrower controls.
       </p>
       <Input label="Payee address" value={payee} onChange={(e) => setPayee(e.target.value.trim())} placeholder="0x…" />

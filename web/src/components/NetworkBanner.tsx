@@ -8,8 +8,8 @@ export function NetworkBanner() {
   if (!deployed) {
     return (
       <Notice tone="warn">
-        <b>Not deployed on {activeChain.name} yet.</b> Tabb is pre-audit; mainnet contracts will be deployed by the team
-        after the audit. You can explore the interface, or run it against a local anvil deployment (see README).
+        <b>Not deployed on {activeChain.name} yet.</b> You can explore the interface; actions are disabled on this network
+        until the Tabb contracts are deployed here.
       </Notice>
     );
   }

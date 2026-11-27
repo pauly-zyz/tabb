@@ -12,6 +12,10 @@
     {
       "source": "/rpc/testnet",
       "destination": "https://rpc.testnet.chain.robinhood.com/"
+    },
+    {
+      "source": "/rpc/elysium",
+      "destination": "https://rpc.elysium.kinetiq.xyz/"
     }
   ]
 }

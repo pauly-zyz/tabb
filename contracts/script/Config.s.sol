@@ -8,6 +8,7 @@ library TabbConfig {
     uint256 internal constant ANVIL = 31337;
     uint256 internal constant ROBINHOOD_MAINNET = 4663;
     uint256 internal constant ROBINHOOD_TESTNET = 46630; // verified via eth_chainId on rpc.testnet.chain.robinhood.com
+    uint256 internal constant ELYSIUM = 99901; // Kinetiq Elysium mainnet, verified via eth_chainId on rpc.elysium.kinetiq.xyz
 
     struct External {
         address usdg; // TODO per chain: USDG token (verify decimals() == 6)
@@ -45,6 +46,12 @@ library TabbConfig {
                 cliptYieldToken: address(0), // TODO
                 cliptYtPriceFeed: address(0) // TODO
             });
+        }
+        if (chainId == ELYSIUM) {
+            // Elysium (Kinetiq) mainnet, verified on-chain 2026-11-27. Stablecoin is USDC (6 decimals), bridged from
+            // HyperEVM. No ERC-8004 Identity Registry exists on Elysium yet -> address(0) (protocol not deployable).
+            e.usdg = 0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65; // USDC
+            e.identityRegistry = address(0); // TODO: ERC-8004 Identity Registry not deployed on Elysium yet
         }
         // Robinhood Chain testnet (46630): USDG / ERC-8004 / feeds unknown -> address(0); testnet deploys use
         // DEPLOY_MOCKS=true (mock USDG with public mint, mock ERC-8004 registry, mock vault/YT/feed).

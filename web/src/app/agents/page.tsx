@@ -19,7 +19,7 @@ import { RiskAck } from "@/components/RiskAck";
 import { Badge, Button, Card, Input, Meter, Notice, Row, SectionTitle, Stat, TxStatus } from "@/components/ui";
 import { useUsdgBalance } from "@/lib/hooks";
 import { fmtBps, fmtUsdg, fmtWadPct, parseUsdg } from "@/lib/format";
-import { A, addrs, deployed, STATUS, type AgentTab } from "@/lib/tabb";
+import { A, addrs, deployed, STATUS, type AgentTab, STABLE } from "@/lib/tabb";
 import { useTx } from "@/lib/useTx";
 
 interface Breakdown {
@@ -216,13 +216,13 @@ export default function AgentsPage() {
             </div>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex-1">
-                <Input label="Add stake" placeholder="100" inputMode="decimal" value={stakeStr} onChange={(e) => setStakeStr(e.target.value)} suffix="USDG" />
+                <Input label="Add stake" placeholder="100" inputMode="decimal" value={stakeStr} onChange={(e) => setStakeStr(e.target.value)} suffix={STABLE} />
               </div>
               <Button disabled={!stakeAmt || stakeTx.busy} onClick={doStake}>
                 {(allowance ?? 0n) < (stakeAmt ?? 0n) ? "Approve & stake" : "Stake"}
               </Button>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">Wallet: {fmtUsdg(balance)} USDG</div>
+            <div className="mt-2 text-xs text-zinc-500">Wallet: {fmtUsdg(balance)} {STABLE}</div>
             <TxStatus status={stakeTx.status} error={stakeTx.error} />
             <div className="mt-2">
               <Faucet />
@@ -231,14 +231,14 @@ export default function AgentsPage() {
 
           <Card>
             <h2 className="mb-3 font-semibold">3 · Your credit limit</h2>
-            <Row k="Revenue via splitter (90d)" v={`${fmtUsdg(bd?.revenue)} USDG`} />
-            <Row k="Revenue-based capacity (25%)" v={`${fmtUsdg(bd?.revenueLimit)} USDG`} />
-            <Row k="Base limit" v={`${fmtUsdg(params?.baseLimit)} USDG`} />
-            <Row k="Stake × leverage" v={`${fmtUsdg(bd?.stakeLimit)} USDG`} />
+            <Row k="Revenue via splitter (90d)" v={`${fmtUsdg(bd?.revenue)} ${STABLE}`} />
+            <Row k="Revenue-based capacity (25%)" v={`${fmtUsdg(bd?.revenueLimit)} ${STABLE}`} />
+            <Row k="Base limit" v={`${fmtUsdg(params?.baseLimit)} ${STABLE}`} />
+            <Row k="Stake × leverage" v={`${fmtUsdg(bd?.stakeLimit)} ${STABLE}`} />
             <Row k="Max per agent / per owner" v={`${fmtUsdg(params?.maxPerAgent, 0)} / ${fmtUsdg(params?.maxPerOwner, 0)}`} />
             <div className="mt-2 flex items-center justify-between rounded-xl bg-ink-800 px-3 py-2">
               <span className="text-sm text-zinc-300">Credit limit</span>
-              <span className="text-lg font-semibold text-tab-400 tabular-nums">{fmtUsdg(limit)} USDG</span>
+              <span className="text-lg font-semibold text-tab-400 tabular-nums">{fmtUsdg(limit)} {STABLE}</span>
             </div>
             <p className="mt-2 text-xs text-zinc-500">
               limit = min(max(base, 25% × 90-day revenue), stake × leverage, max per agent). Limits grow with revenue routed
@@ -257,7 +257,7 @@ export default function AgentsPage() {
                 Open tab
               </Button>
               {!canOpen && (stake ?? 0n) < (params?.minStake ?? 0n) && (
-                <p className="mt-2 text-xs text-amber-300">Stake at least {fmtUsdg(params?.minStake)} USDG first.</p>
+                <p className="mt-2 text-xs text-amber-300">Stake at least {fmtUsdg(params?.minStake)} {STABLE} first.</p>
               )}
               <TxStatus status={openTx.status} error={openTx.error} />
             </Card>
@@ -266,9 +266,9 @@ export default function AgentsPage() {
           {tabOpen && tab && (
             <Card>
               <h2 className="mb-3 font-semibold">4 · Draw</h2>
-              <Input label="Amount to borrow" placeholder="0.00" inputMode="decimal" value={drawStr} onChange={(e) => setDrawStr(e.target.value)} suffix="USDG" />
+              <Input label="Amount to borrow" placeholder="0.00" inputMode="decimal" value={drawStr} onChange={(e) => setDrawStr(e.target.value)} suffix={STABLE} />
               <div className="mt-2 flex justify-between text-xs text-zinc-500">
-                <span>Available now: {fmtUsdg(available)} USDG</span>
+                <span>Available now: {fmtUsdg(available)} {STABLE}</span>
                 <button type="button" className="text-tab-400" onClick={() => setDrawStr((Number(available) / 1e6).toString())}>
                   Max
                 </button>
@@ -283,14 +283,14 @@ export default function AgentsPage() {
                 <Meter value={Number(newDebt)} max={Number(limit)} />
                 <Row k="Borrow APR (base + spread)" v={fmtWadPct(borrowRate)} />
                 <Row k="Funds go to" v="Agent PolicyAccount (curated payees only)" />
-                <Row k="Daily spend cap" v={`${fmtUsdg(preview?.dailyCap)} USDG`} />
+                <Row k="Daily spend cap" v={`${fmtUsdg(preview?.dailyCap)} ${STABLE}`} />
                 <Row k="Auto-repay split of revenue" v={fmtBps(tab.splitBps)} />
                 {preview?.minPayment !== undefined && (
-                  <Row k="Minimum payment every 30 days" v={`${fmtUsdg(preview.minPayment)} USDG`} />
+                  <Row k="Minimum payment every 30 days" v={`${fmtUsdg(preview.minPayment)} ${STABLE}`} />
                 )}
               </div>
               {preview?.overLimit && <p className="mt-2 text-xs text-red-300">Exceeds your credit limit.</p>}
-              {preview?.belowMin && <p className="mt-2 text-xs text-amber-300">Minimum debt is {fmtUsdg(params?.minDebt)} USDG.</p>}
+              {preview?.belowMin && <p className="mt-2 text-xs text-amber-300">Minimum debt is {fmtUsdg(params?.minDebt)} {STABLE}.</p>}
               <div className="mt-4">
                 <RiskAck checked={ack} onChange={setAck} />
               </div>
@@ -299,7 +299,7 @@ export default function AgentsPage() {
                 disabled={!drawAmt || !ack || preview?.overLimit || preview?.belowMin || status !== "Active" || drawTx.busy}
                 onClick={doDraw}
               >
-                Draw {drawAmt ? `${fmtUsdg(drawAmt)} USDG` : ""}
+                Draw {drawAmt ? `${fmtUsdg(drawAmt)} ${STABLE}` : ""}
               </Button>
               <TxStatus status={drawTx.status} error={drawTx.error} />
               <p className="mt-3 text-xs text-zinc-500">
