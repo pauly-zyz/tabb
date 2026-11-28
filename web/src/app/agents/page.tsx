@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useAccount, useReadContract, useReadContracts } from "wagmi";
-import { isAddress, maxUint256 } from "viem";
+import { useAccount, useConfig, useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import { waitForTransactionReceipt } from "wagmi/actions";
+import { useQueryClient } from "@tanstack/react-query";
+import { BaseError, decodeEventLog, isAddress, maxUint256 } from "viem";
 import {
   agentCreditManagerAbi,
   agentCreditScoreAbi,
@@ -21,6 +23,68 @@ import { useUsdgBalance } from "@/lib/hooks";
 import { fmtBps, fmtUsdg, fmtWadPct, parseUsdg } from "@/lib/format";
 import { A, addrs, deployed, STATUS, type AgentTab, STABLE } from "@/lib/tabb";
 import { useTx } from "@/lib/useTx";
+
+/** Self-hosted ERC-8004 IdentityRegistry (networks without the canonical registry, e.g. Elysium). */
+const identityRegistryAbi = [
+  {
+    type: "function",
+    name: "register",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "agentURI", type: "string" }],
+    outputs: [{ name: "agentId", type: "uint256" }],
+  },
+  {
+    type: "event",
+    name: "Registered",
+    inputs: [
+      { name: "agentId", type: "uint256", indexed: true },
+      { name: "agentURI", type: "string", indexed: false },
+      { name: "owner", type: "address", indexed: true },
+    ],
+  },
+] as const;
+
+/** Registers a new agent on the self-hosted registry and returns its ID (from the Registered event). */
+function useRegisterAgent() {
+  const config = useConfig();
+  const qc = useQueryClient();
+  const { writeContractAsync } = useWriteContract();
+  const [status, setStatus] = useState<"idle" | "pending" | "confirming" | "success" | "error">("idle");
+  const [error, setError] = useState<string>();
+  async function register(agentURI: string): Promise<bigint | undefined> {
+    setError(undefined);
+    setStatus("pending");
+    try {
+      const hash = await writeContractAsync({
+        address: A.identityRegistry,
+        abi: identityRegistryAbi,
+        functionName: "register",
+        args: [agentURI],
+      });
+      setStatus("confirming");
+      const r = await waitForTransactionReceipt(config, { hash });
+      if (r.status !== "success") throw new Error("Registration reverted");
+      let id: bigint | undefined;
+      for (const log of r.logs) {
+        if (log.address.toLowerCase() !== A.identityRegistry.toLowerCase()) continue;
+        try {
+          const ev = decodeEventLog({ abi: identityRegistryAbi, data: log.data, topics: log.topics });
+          if (ev.eventName === "Registered") id = ev.args.agentId;
+        } catch {
+          /* other events (Transfer, MetadataSet) */
+        }
+      }
+      setStatus("success");
+      await qc.invalidateQueries();
+      return id;
+    } catch (e) {
+      setError(e instanceof BaseError ? e.shortMessage : e instanceof Error ? e.message : String(e));
+      setStatus("error");
+      return undefined;
+    }
+  }
+  return { register, status, error, busy: status === "pending" || status === "confirming" };
+}
 
 interface Breakdown {
   stake: bigint;
@@ -103,6 +167,14 @@ export default function AgentsPage() {
       args: ["ipfs://tabb-demo-agent"],
     });
     if (ok && id !== undefined) setIdStr(id.toString());
+  }
+
+  // ---- register a new agent (self-hosted ERC-8004 registry only)
+  const selfReg = useRegisterAgent();
+  const [agentUri, setAgentUri] = useState("");
+  async function registerNew() {
+    const id = await selfReg.register(agentUri.trim());
+    if (id !== undefined) setIdStr(id.toString());
   }
 
   // ---- stake
@@ -191,6 +263,29 @@ export default function AgentsPage() {
           )}
         </div>
         <TxStatus status={regTx.status} error={regTx.error} />
+        {deployed && addrs?.selfHostedRegistry && (
+          <div className="mt-4 rounded-xl border border-ink-700 p-3">
+            <div className="text-sm font-semibold">No agent ID yet? Register one on this network</div>
+            <p className="mt-1 text-xs text-zinc-400">
+              Mints an ERC-8004 agent identity (NFT) to your wallet on Tabb&apos;s ERC-8004 registry for this network. The
+              official ERC-8004 registry is not deployed here yet, so IDs from other chains do not carry over.
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <Input
+                  label="Agent URI (optional)"
+                  placeholder="https://… or ipfs://… (agent card)"
+                  value={agentUri}
+                  onChange={(e) => setAgentUri(e.target.value)}
+                />
+              </div>
+              <Button disabled={!address || selfReg.busy} onClick={registerNew}>
+                Register agent
+              </Button>
+            </div>
+            <TxStatus status={selfReg.status} error={selfReg.error} />
+          </div>
+        )}
         {ready && (
           <div className="mt-3 space-y-1">
             <Row k="Registry owner" v={agentOwner ? (isOwner ? "You" : agentOwner) : "Not found"} />

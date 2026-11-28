@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes the addresses from contracts/deployments/<chainId>.json (+ .yield.json) into config/addresses.ts.
-//   node scripts/sync-addresses.mjs <chainId> [--mocks] [--stable USDC]
+//   node scripts/sync-addresses.mjs <chainId> [--mocks] [--stable USDC] [--self-registry]
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,7 @@ for (const k of keys) entry += `    ${k}: "${dep[k]}",\n`;
 if (dep.demoProvider) entry += `    demoProvider: "${dep.demoProvider}",\n`;
 entry += `    mocks: ${mocks},\n`;
 if (stable) entry += `    stableSymbol: "${stable}",\n`;
+if (process.argv.includes("--self-registry")) entry += "    selfHostedRegistry: true,\n";
 if (y) {
   entry += "    yield: {\n";
   for (const k of ["pool", "oracle", "risk", "tabManager", "harvester", "liquidator", "shareAdapter", "ytAdapter", "vault", "yieldToken", "ytFeed"]) {
