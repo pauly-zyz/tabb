@@ -5,6 +5,11 @@
 > Pending owner / guardian / treasury / curator: `0xF4Ec212DfeC6f159EEC5b9b79c299C863e86Cdc3` (harus menerima
 > ownership di `/admin`).
 
+> **ELYSIUM DEPLOYED 2026-11-28** (chain 99901, USDC). Alamat: `contracts/deployments/99901.json`.
+> AgentCreditManager `0x3d5C28ABE07A03c690266F3a6a014a26AfE605c5`, pool `0xCBe3489D889799325E41FFEF37e465AfDa593dAF`,
+> ERC-8004 IdentityRegistry (self-hosted, owner `0xF4Ec…Cdc3`) `0x5a185Ec8638DBDE65b54E634c38965E9d50bF48F`.
+> Ownership Tabb pending acceptance di `/admin` (pilih jaringan Elysium).
+
 Status per 2026-11-25:
 
 - Fase 1 (kredit AI agent) siap di-deploy ke Robinhood Chain mainnet (`4663`).
