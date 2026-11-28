@@ -31,6 +31,8 @@ export interface TabbAddresses {
   mocks: boolean;
   /** Symbol of the 6-decimal stablecoin stored in `usdg` (default "USDG"). */
   stableSymbol?: string;
+  /** true when `identityRegistry` is Tabb's self-hosted ERC-8004 registry (UI offers "Register a new agent"). */
+  selfHostedRegistry?: boolean;
 }
 
 export interface YieldAddresses {
@@ -105,6 +107,7 @@ export const ADDRESSES: Record<number, TabbAddresses> = {
     agentCreditManager: ZERO, // TODO
     mocks: false,
     stableSymbol: "USDC",
+    selfHostedRegistry: true,
   },
   // TODO: Robinhood Chain testnet — <chainId>: { ...addresses from contracts/deployments/<chainId>.json }
 };
